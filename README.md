@@ -1,4 +1,5 @@
 # SpaceGrid - Ship and Station Building Kit
+<img src=".github/images/thumbnail.jpg" width="220" align="right" alt="">
 > Snap parts together. Get one ship, not a pile of welded props.
 
 SpaceGrid is a building kit for spaceships and stations. Corridors, halls, hangars, rooms, bridges, engines - they snap together with one tool and become one solid ship. A big ship stays calm when you unfreeze it, pastes in one go with the duplicator and is one physics body instead of hundreds of welded props.
@@ -11,6 +12,18 @@ SpaceGrid is a building kit for spaceships and stations. Corridors, halls, hanga
 
 ## Bugs, problems and wishes
 Please use [Issues](../../issues): pick *Bug report* or *Wish or idea*. On the Steam Workshop page the comments work too.
+
+## Pictures
+<p>
+<img src=".github/images/01_frigate.jpg" width="49%" alt="">
+<img src=".github/images/02_flight.jpg" width="49%" alt="">
+<img src=".github/images/03_engines.jpg" width="49%" alt="">
+<img src=".github/images/04_command_deck.jpg" width="49%" alt="">
+<img src=".github/images/05_small_bridge.jpg" width="49%" alt="">
+<img src=".github/images/06_crew_room.jpg" width="49%" alt="">
+<img src=".github/images/07_window_corridor.jpg" width="49%" alt="">
+<img src=".github/images/08_tool.jpg" width="49%" alt="">
+</p>
 
 ---
 
