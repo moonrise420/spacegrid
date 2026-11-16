@@ -1,0 +1,13 @@
+"VertexLitGeneric"
+{
+	"$basetexture" "models/spacegrid/sg_frame"
+	"$bumpmap" "models/spacegrid/sg_frame_n"
+	"$phong" "1"
+	"$phongexponent" "34"
+	"$phongboost" "2.6"
+	"$phongfresnelranges" "[0.6 0.8 1]"
+	"$phongtint" "[1 0.66 0.34]"
+	"$envmap" "env_cubemap"
+	"$envmaptint" "[.10 .07 .04]"
+	"$normalmapalphaenvmapmask" "1"
+}

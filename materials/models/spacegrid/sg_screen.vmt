@@ -1,0 +1,6 @@
+"VertexLitGeneric"
+{
+	"$basetexture" "models/spacegrid/sg_screen"
+	"$selfillum" "1"
+	"$selfillumtint" "[1.3 1.3 1.3]"
+}

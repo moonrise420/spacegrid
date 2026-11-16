@@ -1,0 +1,15 @@
+"UnlitGeneric"
+{
+	"$basetexture" "models/spacegrid/sg_field"
+	"$translucent" "1"
+	"$model" "1"
+	"Proxies"
+	{
+		"TextureScroll"
+		{
+			"texturescrollvar" "$basetexturetransform"
+			"texturescrollrate" "0.03"
+			"texturescrollangle" "90"
+		}
+	}
+}

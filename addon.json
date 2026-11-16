@@ -1,0 +1,14 @@
+{
+	"title": "SpaceGrid - Ship and Station Building Kit",
+	"type": "tool",
+	"tags": [
+		"build",
+		"realism"
+	],
+	"ignore": [
+		"*.md",
+		"LICENSE",
+		".git*",
+		"tools/*"
+	]
+}
