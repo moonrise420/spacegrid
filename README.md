@@ -5,7 +5,7 @@
 SpaceGrid is a building kit for spaceships and stations. Corridors, halls, hangars, rooms, bridges, engines - they snap together with one tool and become one solid ship. A big ship stays calm when you unfreeze it, pastes in one go with the duplicator and is one physics body instead of hundreds of welded props.
 
 ## Install
-**Steam Workshop (easiest):** subscribe there.
+**Steam Workshop (easiest):** subscribe [there](https://steamcommunity.com/sharedfiles/filedetails/?id=3840679187).
 
 **By hand:** download `spacegrid-0.1.0.zip` from [Releases](../../releases/latest) and unpack it into
 `garrysmod/addons/` (you get the folder `garrysmod/addons/spacegrid`).
@@ -61,7 +61,7 @@ Nothing - you can build without anything else. These add to it:
 - **StarCore**: flying
 - [Wiremod](https://steamcommunity.com/sharedfiles/filedetails/?id=160250458): Wire inputs and outputs
 
-All our addons in one click: *Ascension Gates - Complete* (Steam Workshop collection)
+All our addons in one click: [Ascension Gates - Complete](https://steamcommunity.com/sharedfiles/filedetails/?id=3840681489)
 
 ## First steps
 1. Open the spawn menu tab **SpaceGrid** and pick a part - you get the SpaceGrid Builder with it.
