@@ -82,7 +82,8 @@ SpaceGrid collects nothing and never goes online.
 ## Build fund
 > Every part in this kit was made from scratch. So was a lot of coffee.
 
-If SpaceGrid built you something you're proud of, a small tip funds the next set of parts: [paypal.me/soulridejourney](https://www.paypal.me/soulridejourney)
+If SpaceGrid built you something you're proud of, a small tip funds the next set of parts:
+[![](.github/images/donate.png)](https://www.paypal.me/soulridejourney)
 Never needed, always appreciated. Telling us in the comments what you built makes our day too.
 
 ---
