@@ -61,7 +61,7 @@ Nothing - you can build without anything else. These add to it:
 - **StarCore**: flying
 - [Wiremod](https://steamcommunity.com/sharedfiles/filedetails/?id=160250458): Wire inputs and outputs
 
-All our addons in one click: [Ascension Gates - Complete](https://steamcommunity.com/sharedfiles/filedetails/?id=3840681489)
+All my addons in one click: [Ascension Gates - Complete](https://steamcommunity.com/sharedfiles/filedetails/?id=3840681489)
 
 ## First steps
 1. Open the spawn menu tab **SpaceGrid** and pick a part - you get the SpaceGrid Builder with it.
@@ -72,7 +72,7 @@ All our addons in one click: [Ascension Gates - Complete](https://steamcommunity
 All texts in English, Czech, German, Spanish, Estonian, French, Croatian, Hungarian, Dutch, Russian, Swedish and Turkish; SpaceGrid follows the game's language.
 
 ## Early version
-This is version 0.1. It builds, flies and holds air, and a lot more is planned: more parts, more rooms, more ways to join them. Tell us what you want to build and what's missing.
+This is version 0.1. It builds, flies and holds air, and a lot more is planned: more parts, more rooms, more ways to join them. Tell me what you want to build and what's missing.
 
 ## Privacy
 SpaceGrid collects nothing and never goes online.
@@ -84,7 +84,7 @@ SpaceGrid collects nothing and never goes online.
 
 If SpaceGrid built you something you're proud of, a small tip funds the next set of parts:
 [![](.github/images/donate.png)](https://www.paypal.me/soulridejourney)
-Never needed, always appreciated. Telling us in the comments what you built makes our day too.
+Never needed, always appreciated. Telling me in the comments what you built makes my day too.
 
 ---
 
