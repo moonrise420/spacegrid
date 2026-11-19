@@ -84,7 +84,7 @@ SpaceGrid collects nothing and never goes online.
 
 If SpaceGrid built you something you're proud of, a small tip funds the next set of parts:
 [![](.github/images/donate.png)](https://www.paypal.me/soulridejourney)
-Never needed, always appreciated. Telling me in the comments what you built makes my day too.
+Telling me in the comments what you built makes my day too.
 
 ---
 
