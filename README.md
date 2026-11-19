@@ -30,7 +30,7 @@ Please use [Issues](../../issues): pick *Bug report* or *Wish or idea*. On the S
 ## What's inside
 
 ### About 250 parts
-- Corridors, halls, hangars and great halls in five sizes, crawl ways
+- Five sizes of space: corridors (S, M), halls (L), hangars (XL) and great halls (XXL), plus small crawl ways
 - Windows and glass domes, doors, airlocks and gates
 - Cockpits and bridges, complete and furnished rooms, a lift and a ladder shaft
 - Engines, thrusters, wings, landing gear, antennas, lamps
@@ -89,4 +89,4 @@ Telling me in the comments what you built makes my day too.
 ---
 
 ## Licence
-MIT. All models and textures are made by SpaceGrid's own generator; the sounds are Garry's Mod's own.
+MIT (licence text on [GitHub](https://github.com/moonrise420/spacegrid)). All models and textures are made by SpaceGrid's own generator; the sounds are Garry's Mod's own.
