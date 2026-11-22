@@ -12,12 +12,20 @@ ENT.RenderGroup = RENDERGROUP_BOTH
 if CLIENT then
 	function ENT:GetRenderMesh() return self.SGRender end
 
+	-- (a wreck: drawn burnt dark, lua/spacegrid/cl_fx.lua)
+	local function draw(self)
+		local t = SpaceGrid.IsWreck and SpaceGrid.IsWreck(self:GetParent()) and SpaceGrid.WreckTint
+		if t then render.SetColorModulation(t[1], t[2], t[3]) end
+		self:DrawModel()
+		if t then render.SetColorModulation(1, 1, 1) end
+	end
+
 	-- solid materials in the solid pass, glass in the see-through pass; the game lights the mesh like a model
 	function ENT:Draw()
-		if self.SGRender and not self.SGTrans then self:DrawModel() end
+		if self.SGRender and not self.SGTrans then draw(self) end
 	end
 
 	function ENT:DrawTranslucent()
-		if self.SGRender and self.SGTrans then self:DrawModel() end
+		if self.SGRender and self.SGTrans then draw(self) end
 	end
 end

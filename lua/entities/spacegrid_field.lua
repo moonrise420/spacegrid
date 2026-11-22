@@ -48,13 +48,15 @@ function ENT:Initialize()
 end
 
 -- Rays - shots, the tool gun's aim, the Wire tool - do not see the plain oriented box of an entity; only box-shaped
--- traces (a walking player) do. Measured 2026-11-14: every line trace went straight through a shut door and a
--- field that was on. So the entity answers traces itself: the same box, tested here, for rays and boxes alike.
+-- traces (a walking player) do. Measured: every line trace went straight through a shut door and a field that
+-- was on. So the entity answers traces itself: the same box, tested here, for rays and boxes alike.
 function ENT:TestCollision(start, delta, isbox, extents)
+	-- off or passable, the low strip on the sill is there for rays only (the Use key, the Wire tool): a walking
+	-- player's box caught on it and could not step over where no floor follows at once (the field plug test)
+	if isbox and not (self:GetOn() and not self:GetPassable()) then return end
 	local mn, mx = self:GetCollisionBounds()
-	if isbox and extents then mn, mx = mn - extents, mx + extents end
-	local hit, normal, frac = util.IntersectRayWithOBB(start, delta, self:GetPos(), self:GetAngles(), mn, mx)
-	if hit then return { HitPos = hit, Fraction = frac, Normal = normal } end
+	return SpaceGrid.BoxHit(self, start, delta, isbox, extents, mn, mx)   -- (a touching player goes free: sh_core.lua)
+
 end
 
 if SERVER then

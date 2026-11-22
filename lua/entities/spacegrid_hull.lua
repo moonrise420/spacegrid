@@ -41,13 +41,9 @@ function ENT:SGRebuild()
 	local conv, mn, mx, mass, raw = SpaceGrid.StateCollision(self.SG)
 	if #conv == 0 then return false end
 	self.SGPiecesRaw = raw
-	local phys = self:GetPhysicsObject()
-	local frozen, vel, avel, grav = true, nil, nil, true
-	if SERVER and IsValid(phys) then
-		frozen = not phys:IsMotionEnabled()
-		grav = phys:IsGravityEnabled()   -- (a ship that StarCore flies has none: it must not start to sink when a part is added)
-		vel, avel = phys:GetVelocity(), phys:GetAngleVelocity()
-	end
+	-- (server: how the ship moved - its keel's body, or its own before it had a keel; a ship that StarCore flies has no
+	-- gravity: it must not start to sink when a part is added)
+	local state = SERVER and SpaceGrid.KeelState and SpaceGrid.KeelState(self) or nil
 	local ok = self:PhysicsInitMultiConvex(conv, "metal")
 	self.SGPhysOk = ok
 	if SERVER then
@@ -57,18 +53,15 @@ function ENT:SGRebuild()
 	self:EnableCustomCollisions(true)
 	self:SetCollisionBounds(mn, mx)
 	self.SGMins, self.SGMaxs, self.SGPieces = mn, mx, #conv
-	if SpaceGrid.TooBig(self) then frozen = true end   -- see SpaceGrid.MaxPieces
-	phys = self:GetPhysicsObject()
+	local phys = self:GetPhysicsObject()
 	if IsValid(phys) then
 		if SERVER then
+			-- the ship one sees stays a frozen body that is put where its keel is after every physics step; the keel flies,
+			-- falls and lands (sv_keel.lua). A frozen body is the one thing the physics' pair lists never count.
 			phys:SetMass(math.Clamp(mass, 1, 50000))
-			phys:EnableGravity(grav)
-			phys:EnableMotion(not frozen)
-			if not frozen then
-				phys:SetVelocity(vel)
-				phys:AddAngleVelocity(avel - phys:GetAngleVelocity())
-				phys:Wake()
-			end
+			phys:EnableMotion(false)
+			self.StarCoreFollower = true   -- (StarCore moves the keel, not this)
+			SpaceGrid.SyncKeel(self, state, mass)
 		else
 			phys:EnableMotion(false)
 			phys:SetPos(self:GetPos())
@@ -114,6 +107,9 @@ if SERVER then
 		data.SG, data.SGMins, data.SGMaxs, data.SGOwner = nil, nil, nil, nil
 		data.SGDupe = self:SGSave()
 		data.SGDupeOpen = table.GetKeys(self.SG.open or {})
+		-- (frozen or not is the keel's: the hull itself is a shadow that always "moves")
+		local body = SpaceGrid.Body(self)
+		data.SGFrozen = not (IsValid(body) and body:IsMotionEnabled())
 	end
 
 	duplicator.Allow("spacegrid_hull")
@@ -131,11 +127,17 @@ if SERVER then
 			e.SGOwner = ply
 			if e.CPPISetOwner then e:CPPISetOwner(ply) end
 			gamemode.Call("PlayerSpawnedSENT", ply, e)
+			local k = e.SGKeel
+			if IsValid(k) then
+				k.SGOwner = ply
+				if k.CPPISetOwner then k:CPPISetOwner(ply) end
+			end
 		end
 		local po = data.PhysicsObjects and data.PhysicsObjects[0]
-		local phys = e:GetPhysicsObject()
-		if IsValid(phys) and po then
-			local frozen = po.Frozen or SpaceGrid.TooBig(e)
+		local phys = SpaceGrid.Body(e)   -- (the keel: it moves the ship)
+		if IsValid(phys) and (po or data.SGFrozen ~= nil) then
+			local frozen = SpaceGrid.TooBig(e)
+			if data.SGFrozen ~= nil then frozen = frozen or data.SGFrozen else frozen = frozen or po.Frozen end
 			phys:EnableMotion(not frozen)
 			if not frozen then phys:Wake() end
 		end
@@ -143,7 +145,7 @@ if SERVER then
 	end, "Data")
 else
 	-- the kill notice when a ship (or a closing door, a lift platform) hits a player: the game's own prop icon. Without
-	-- it the notice had no icon and the console said "killicon not found 'spacegrid_hull'" (multiplayer test 2026-11-16).
+	-- it the notice had no icon and the console said "killicon not found 'spacegrid_hull'" (multiplayer test).
 	for _, class in ipairs({ "spacegrid_hull", "spacegrid_door", "spacegrid_lift" }) do
 		if not killicon.Exists(class) then killicon.AddAlias(class, "prop_physics") end
 	end

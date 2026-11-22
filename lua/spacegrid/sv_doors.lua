@@ -7,6 +7,7 @@
 local NEAR = 100      -- a player this close to the door's middle opens it
 local HOLD = 1.0      -- seconds it stays open after the last player left
 local BLOCK = 34      -- a player this close to the door's middle stands in the doorway: it does not shut on him
+local GATE_BLOCK = 24 -- a gate: a player's middle this close to its sheet stands in its opening
 local GATE_NEAR, GATE_NEAR_RIDING, GATE_HOLD = 230, 900, 2.0   -- an automatic gate: how near on foot / in a seat opens it, how long it stays open
 local DOOR_KIND = { quad = 1, iris = 2, shutter = 3, blast = 4, jaws = 5 }   -- part data's `kind` -> the door entity's (spacegrid_door.lua)
 
@@ -15,20 +16,35 @@ function SpaceGrid.SyncDoors(hull)
 	if not IsValid(hull) or not hull.SG then return end
 	local doors = hull.SGDoors or {}
 	hull.SGDoors = doors
+	local jends = SpaceGrid.StateEnds(hull.SG)
 	for pid, g in pairs(doors) do
-		-- (the part table itself is compared: a part put back under an old number is a new table)
-		if g.part ~= hull.SG.parts[pid] then
+		-- (the part table itself is compared: a part put back under an old number is a new table; a flat hangar door
+		-- in a joint is kept under "j<key>" and goes with its wall, as a force-field plug's field)
+		local gone
+		if g.joint then
+			local e = jends[g.joint]
+			gone = not e or e.t ~= g.t or e.pos ~= g.pos
+		else
+			gone = g.part ~= hull.SG.parts[pid]
+		end
+		if gone then
 			for _, d in ipairs(g) do
 				if IsValid(d) then d:Remove() end
 			end
 			doors[pid] = nil
 		end
 	end
-	for pid, part in pairs(hull.SG.parts) do
+	local todo = {}
+	for pid, part in pairs(hull.SG.parts) do todo[#todo + 1] = { pid, part, { part = part } } end
+	for key, e in pairs(jends) do
+		if e.joint then todo[#todo + 1] = { "j" .. key, e, { joint = key, t = e.t, pos = e.pos } } end
+	end
+	for _, w in ipairs(todo) do
+		local pid, part = w[1], w[2]
 		local def = SpaceGrid.Parts[part.t]
 		local list = def.doors or (def.door and { def.door })
 		if list and not doors[pid] then
-			local g = { part = part }
+			local g = w[3]
 			for _, dd in ipairs(list) do
 				local lpos, lang = LocalToWorld(dd.pos, Angle(0, dd.yaw or 0, 0), part.pos, part.ang)
 				local d = ents.Create("spacegrid_door")
@@ -36,11 +52,13 @@ function SpaceGrid.SyncDoors(hull)
 					d:SetWide(dd.w)
 					d:SetKind(DOOR_KIND[dd.kind or ""] or 0)
 					d:SetTall(dd.h or 0)
+					d:SetFlat(g.joint ~= nil)   -- (a flat hangar door: its panel's solid box matches its thin posts)
 					d:SetPos(hull:LocalToWorld(lpos))
 					d:SetAngles(hull:LocalToWorldAngles(lang))
 					d:Spawn()
 					d:SetParent(hull)
-					d.SGPart = part
+					d.SGPart = not g.joint and part or nil
+					d.SGJoint = g.joint   -- (a flat hangar door in a joint: R takes it out of the joint, the tool)
 					d.SGAuto = dd.auto == true   -- (a gate that opens by itself for who comes near)
 					if IsValid(hull.SGOwner) and d.CPPISetOwner then d:CPPISetOwner(hull.SGOwner) end
 					hull:DeleteOnRemove(d)
@@ -60,38 +78,51 @@ function SpaceGrid.SyncDoors(hull)
 	-- The fields of one part switch together.
 	local fields = hull.SGFields or {}
 	hull.SGFields = fields
+	local ends = SpaceGrid.StateEnds(hull.SG)   -- (now: with welds on the ship its body is rebuilt a tick later)
 	for pid, g in pairs(fields) do
-		if g.part ~= hull.SG.parts[pid] then
+		-- (a force-field plug in a joint: kept under "j<key>", it goes with its wall - sh_core.lua, JointSeals)
+		local gone
+		if g.joint then
+			local e = ends[g.joint]
+			gone = not e or e.t ~= g.t or e.pos ~= g.pos
+		else
+			gone = g.part ~= hull.SG.parts[pid]
+		end
+		if gone then
 			for _, e in ipairs(g) do
 				if IsValid(e) then e:Remove() end
 			end
 			fields[pid] = nil
 		end
 	end
+	local function spawnFields(gkey, list, g, part)
+		for _, fd in ipairs(list) do
+			local lpos, lang = LocalToWorld(fd.pos, Angle(0, fd.yaw or 0, 0), part.pos, part.ang)
+			local e = ents.Create("spacegrid_field")
+			if IsValid(e) then
+				e:SetWide(fd.w)
+				e:SetTall(fd.h)
+				e:SetOn(true)
+				e:SetPos(hull:LocalToWorld(lpos))
+				e:SetAngles(hull:LocalToWorldAngles(lang))
+				e:Spawn()
+				e:SetParent(hull)
+				e.SGGroup = g
+				if IsValid(hull.SGOwner) and e.CPPISetOwner then e:CPPISetOwner(hull.SGOwner) end
+				hull:DeleteOnRemove(e)
+				g[#g + 1] = e
+			end
+		end
+		fields[gkey] = g
+		if IsValid(g[1]) then g[1]:SGHum() end
+	end
+	for key, e in pairs(ends) do
+		local list = e.joint and SpaceGrid.Parts[e.t].fields
+		if list and not fields["j" .. key] then spawnFields("j" .. key, list, { joint = key, t = e.t, pos = e.pos }, e) end
+	end
 	for pid, part in pairs(hull.SG.parts) do
 		local list = SpaceGrid.Parts[part.t].fields
-		if list and not fields[pid] then
-			local g = { part = part }
-			for _, fd in ipairs(list) do
-				local lpos, lang = LocalToWorld(fd.pos, Angle(0, fd.yaw or 0, 0), part.pos, part.ang)
-				local e = ents.Create("spacegrid_field")
-				if IsValid(e) then
-					e:SetWide(fd.w)
-					e:SetTall(fd.h)
-					e:SetOn(true)
-					e:SetPos(hull:LocalToWorld(lpos))
-					e:SetAngles(hull:LocalToWorldAngles(lang))
-					e:Spawn()
-					e:SetParent(hull)
-					e.SGGroup = g
-					if IsValid(hull.SGOwner) and e.CPPISetOwner then e:CPPISetOwner(hull.SGOwner) end
-					hull:DeleteOnRemove(e)
-					g[#g + 1] = e
-				end
-			end
-			fields[pid] = g
-			if IsValid(g[1]) then g[1]:SGHum() end
-		end
+		if list and not fields[pid] then spawnFields(pid, list, { part = part }, part) end
 	end
 	SpaceGrid.SyncSeats(hull)
 end
@@ -135,10 +166,18 @@ function SpaceGrid.SyncSeats(hull)
 					s:DrawShadow(false)
 					s.SpaceGridSeat = true
 					-- a cockpit's, bridge's or control desk's chair flies the ship with StarCore (sv_flight.lua)
-					s.SGPilot = SpaceGrid.IsPilotPart ~= nil and SpaceGrid.IsPilotPart(part.t)
-					s.StarCoreRolePreset = s.SGPilot and "pilot" or "passenger"
+					-- (a seat with its own role in the part data - the Gate Hall bridge: the captain flies, the desks are a
+					-- gunner's and an engineer's (StarCore's crew roles) - else the part decides)
+					if sd.role then
+						s.SGPilot = sd.role == "pilot"
+						s.StarCoreRolePreset = sd.role
+					else
+						s.SGPilot = SpaceGrid.IsPilotPart ~= nil and SpaceGrid.IsPilotPart(part.t)
+						s.StarCoreRolePreset = s.SGPilot and "pilot" or "passenger"
+					end
 					s:SetNWBool("SGSeat", true)                -- the clients make the view from these seats themselves (cl_view.lua)
 					s:SetNWBool("SGPilot", s.SGPilot == true)
+					s:SetNWString("SGRole", s.StarCoreRolePreset or "")   -- (cl_view.lua: gunners start in the view from behind)
 					s:SetThirdPersonMode(false)
 					s.DoNotDuplicate = true      -- a pasted hull makes its seats itself
 					s.PhysgunDisabled = true
@@ -191,14 +230,29 @@ hook.Add("PlayerLeaveVehicle", "SpaceGrid.Seat", function(ply, veh)
 	if not IsValid(veh) or not veh.SpaceGridSeat then return end
 	local hull = veh:GetParent()
 	if not IsValid(hull) then return end
-	for _, lp in ipairs(veh.SGExit or {}) do
-		local at = hull:LocalToWorld(lp)
-		local tr = util.TraceHull({ start = at, endpos = at, mins = Vector(-16, -16, 0), maxs = Vector(16, 16, 72), filter = ply, mask = MASK_PLAYERSOLID })
-		if not tr.StartSolid and not tr.Hit then
-			ply:SetPos(at)
-			return
+	-- (getting up from a gunner seat put him outside, through the window - when the seat's own 8 spots were taken,
+	-- the game chose one. Now: those spots first, then the nearest free spot round the seat on its deck - inside the
+	-- ship, nothing solid between it and the seat (StarCore's SeatExitSpot); never the game's own.)
+	local list = {}
+	for _, lp in ipairs(veh.SGExit or {}) do list[#list + 1] = hull:LocalToWorld(lp) end
+	local mn, mx = hull.SGMins, hull.SGMaxs
+	local function inside(at)
+		if not mn then return true end
+		local l = hull:WorldToLocal(at)
+		return l.x > mn.x and l.x < mx.x and l.y > mn.y and l.y < mx.y and l.z > mn.z and l.z < mx.z
+	end
+	local at
+	if StarCore and StarCore.SeatExitSpot then
+		at = StarCore.SeatExitSpot(veh, ply, list, inside)
+	else
+		for _, p in ipairs(list) do
+			local tr = util.TraceHull({ start = p, endpos = p, mins = Vector(-16, -16, 0), maxs = Vector(16, 16, 72), filter = ply, mask = MASK_PLAYERSOLID })
+			if not tr.StartSolid and not tr.Hit then at = p break end
 		end
 	end
+	-- (nothing free at all: on the seat's own spot, a little up - the ship's "stuck player" help frees him from there)
+	at = at or (veh:GetPos() + Vector(0, 0, 8))
+	if StarCore and StarCore.PutOutOfSeat then StarCore.PutOutOfSeat(ply, hull, at) else ply:SetPos(at) end
 end)
 
 -- A door or a field that holds keeps loose things out too: props, vehicles, other ships. It cannot be a wall for
@@ -230,12 +284,17 @@ function SpaceGrid.ThrowBack(self, e, w, h)
 	if math.abs(side) > reach(n) + 2 then return end                                   -- it does not reach the sheet
 	if math.abs(rel:Dot(lf)) > w / 2 + reach(lf) or math.abs(rel:Dot(up)) > h / 2 + reach(up) then return end
 	local s = side >= 0 and 1 or -1
-	local hp = hull:GetPhysicsObject()
+	local hp = SpaceGrid.Body(hull)   -- (the keel moves the ship: sv_keel.lua)
 	local base = IsValid(hp) and hp:GetVelocityAtPoint(c) or vector_origin         -- the ship may be moving itself
+	-- (a loose thing the ship carries along - sv_keel.lua - has its speed in the ship already: with the ship's speed taken
+	-- off once more, a shut door in a flying ship threw it at the ship's whole speed - out through the hull.)
+	--
+	if SpaceGrid.CarriedBy and SpaceGrid.CarriedBy(e) == hull then base = vector_origin end
 	local v = phys:GetVelocity() - base
 	local vn = v:Dot(n) * s                                                            -- below zero: on its way in
 	local want = math.max(-vn * 0.6, 60)
 	if vn >= want then return end
+	if SpaceGrid.KickOK then SpaceGrid.KickOK(e) end   -- (a push the ship's carry may keep: sv_keel.lua)
 	phys:SetVelocity(v + n * (s * (want - vn)) + base)
 	return true
 end
@@ -284,11 +343,15 @@ end
 timer.Create("SpaceGrid.Doors", 0.2, 0, function()
 	local doors = ents.FindByClass("spacegrid_door")
 	if #doors == 0 then return end
-	local at, riding = {}, {}
+	-- (flying from the captain's chair, a door near it kept opening and shutting. Somebody in a seat of a ship is not
+	-- near that ship's own doors - only of other ships' doors, a rover driving into a hangar.)
+	local at, riding, aboard = {}, {}, {}
 	for _, p in ipairs(player.GetAll()) do
 		if p:Alive() then
 			at[#at + 1] = p:WorldSpaceCenter()
 			riding[#at] = p:InVehicle()
+			local v = riding[#at] and p:GetVehicle()
+			aboard[#at] = IsValid(v) and v.SpaceGridSeat and v:GetParent() or false
 		end
 	end
 	local now, near2, block2 = CurTime(), NEAR * NEAR, BLOCK * BLOCK
@@ -296,6 +359,8 @@ timer.Create("SpaceGrid.Doors", 0.2, 0, function()
 	for _, d in ipairs(doors) do
 		local pos = d:GetPos()
 		local gate = d:SGIsGate()
+		local own = d:GetParent()
+		if not IsValid(own) then own = nil end
 		local near, inWay = false, false
 		if gate then
 			-- a gate: in the way is who stands in its opening, anywhere along its width
@@ -303,14 +368,18 @@ timer.Create("SpaceGrid.Doors", 0.2, 0, function()
 			local n, r, u = a:Forward(), a:Right(), a:Up()
 			local hw, ht = d:GetWide() / 2, d:SGTall() / 2 + 40
 			for i, q in ipairs(at) do
+				if aboard[i] == own then continue end
 				local rel = q - pos
 				local dn, dr, du = math.abs(rel:Dot(n)), math.abs(rel:Dot(r)), math.abs(rel:Dot(u))
-				if dn < BLOCK and dr < hw and du < ht then inWay = true end
+				-- (only in the opening itself: a player at its side or at a button in front of it is not in the way -
+				-- a flat hangar door would not shut standing at it)
+				if dn < GATE_BLOCK and dr < hw - 8 and du < ht then inWay = true end
 				-- an automatic gate: who comes towards its opening (on foot from near, in a vehicle's seat from far)
 				if d.SGAuto and dn < (riding[i] and GATE_NEAR_RIDING or GATE_NEAR) and dr < hw + 48 and du < ht then near = true end
 			end
 		else
-			for _, q in ipairs(at) do
+			for i, q in ipairs(at) do
+				if aboard[i] == own then continue end
 				local d2 = q:DistToSqr(pos)
 				if d2 < near2 then near = true end
 				if d2 < block2 then inWay = true end
@@ -323,7 +392,12 @@ timer.Create("SpaceGrid.Doors", 0.2, 0, function()
 		elseif gate then
 			-- a gate does not open by itself: its switch (the Use key, or the wire input Open) says where it stands.
 			-- Locked it shuts. It never shuts on a player who stands in its opening.
-			if near then d.SGStay = now + GATE_HOLD end
+			-- (shut by hand: an automatic gate opens again only once nobody has been near)
+			if d.SGManualShut then
+				if not near then d.SGManualShut = nil end
+			elseif near then
+				d.SGStay = now + GATE_HOLD
+			end
 			local want = (d.SGWant == true or (d.SGStay or 0) > now) and not d:GetLocked()
 			if not want and d:GetOpen() and inWay then want = true end
 			d:SGSetOpen(want)
@@ -339,5 +413,9 @@ timer.Create("SpaceGrid.Doors", 0.2, 0, function()
 			d:SGSetOpen(want)
 		end
 	end
-	for lock in pairs(locks) do airlock(lock, at, now) end
+	for lock in pairs(locks) do
+		local own, list = lock.a:GetParent(), {}
+		for i, q in ipairs(at) do if not (IsValid(own) and aboard[i] == own) then list[#list + 1] = q end end
+		airlock(lock, list, now)
+	end
 end)

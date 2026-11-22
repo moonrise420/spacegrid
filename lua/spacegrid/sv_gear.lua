@@ -33,7 +33,7 @@ function SpaceGrid.SetGear(hull, up)
 		SpaceGrid.StateAdd(st, c[2], c[3], c[4], c[1])
 	end
 	hull.SGDirty = true
-	SpaceGrid.Commit(hull)
+	SpaceGrid.Commit(hull, true)   -- (no building: the StarCore core stays, sv_hull.lua)
 	return true
 end
 
@@ -56,7 +56,7 @@ timer.Create("SpaceGrid.Gear", 0.5, 0, function()
 		if hull.SG and (hull.SGGearHold or 0) < now then
 			local has, up = SpaceGrid.GearState(hull)
 			if has then
-				local phys = hull:GetPhysicsObject()
+				local phys = SpaceGrid.Body(hull)   -- (the keel: sv_keel.lua)
 				local speed = IsValid(phys) and phys:IsMotionEnabled() and phys:GetVelocity():Length() or 0
 				-- (it must hold for a moment: a bump or a short stop does not work the legs)
 				if not up and speed > UP_SPEED then

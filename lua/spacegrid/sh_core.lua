@@ -252,8 +252,8 @@ end
 -- Boxes that continue each other (same cross-section, touching or overlapping along one axis) become one box: a row of
 -- corridor floors is one long plate, a deck of them one slab. The body covers exactly the same space with far fewer
 -- pieces. Why: the game's physics rebuilds the whole body on every change (82 ms at 512 pieces), and the game crashed by
--- chance when a hull of more than 1000 pieces was unfrozen (2026-11-13) - SBEP never had a body above 91 pieces.
--- boxes: { x0, y0, z0, x1, y1, z1 } in whole raster steps. The result does not depend on the order of the input.
+-- chance when a hull of more than 1000 pieces was unfrozen - SBEP never had a body above 91 pieces. boxes: { x0,
+-- y0, z0, x1, y1, z1 } in whole raster steps. The result does not depend on the order of the input.
 local RASTER = 8
 local AXES = { { 1, 2, 3 }, { 2, 3, 1 }, { 3, 1, 2 } }
 function SpaceGrid.MergeBoxes(boxes)
@@ -297,12 +297,12 @@ function SpaceGrid.MergeBoxes(boxes)
 	return boxes
 end
 
--- Closed by default (the owner, 2026-11-15: "so many parts missing walls ... it should be logic and easy to build").
--- Every opening of a ship that nothing is joined to is shut by an end wall: the end cap of its size stands there by
--- itself - drawn, solid, airtight. Joining a part there takes it away. The build tool's Reload on a wall opens that
--- end for good (st.open, by the opening's place), Reload aimed at the opening shuts it again. No wall where a door
--- of the part already closes the way (the outer side of a doorway, an airlock, a gate: a way in), and none where
--- another part is in the way. Switch: spacegrid_closedends 0 (server) - ends stay open as they were before.
+-- Closed by default (the owner,: "so many parts missing walls ... it should be logic and easy to build"). Every
+-- opening of a ship that nothing is joined to is shut by an end wall: the end cap of its size stands there by itself
+-- - drawn, solid, airtight. Joining a part there takes it away. The build tool's Reload on a wall opens that end for
+-- good (st.open, by the opening's place), Reload aimed at the opening shuts it again. No wall where a door of the
+-- part already closes the way (the outer side of a doorway, an airlock, a gate: a way in), and none where another
+-- part is in the way. Switch: spacegrid_closedends 0 (server) - ends stay open as they were before.
 SpaceGrid.EndCap = { S = "s_cap", M = "m_cap", L = "l_cap", XL = "xl_cap", XXL = "xxl_cap", C = "c_cap", V = "s_cap", U = "s_cap" }
 local cvClosed = CreateConVar("spacegrid_closedends", "1", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED, FCVAR_NOTIFY), "SpaceGrid: every open end of a ship is shut by a wall by itself (1) or stays open (0)")
 SpaceGrid.PortKey = portKey
@@ -325,15 +325,55 @@ end
 
 -- the end walls of a hull: key (SpaceGrid.PortKey of the opening) -> { t = the cap's part id, pos, ang (hull space),
 -- part, port }. Kept in st.ends (the body, the air and the drawing all read it).
+-- Walls in joints (two Gate Halls joined at the big opening and at the corridors - the big opening shall be shut,
+-- the corridors stay the way through). A plug (end cap, glass or force-field plug) set into a joint is kept in
+-- st.open as "<key>=<plug id>" - so it is saved, copied and sent with the opened ends, nothing new on the way -
+-- and stands in st.ends like an end wall, with joint = true: on the part of the joint with the lower id,
+-- reaching into the other one by its own thickness.
+function SpaceGrid.JointSeals(st)
+	local out = {}
+	for k in pairs(st.open or {}) do
+		local key, cap = string.match(k, "^(.-)=(.+)$")
+		if key then out[key] = cap end
+	end
+	return out
+end
+
+-- the carrier of a joint: the joined port at that place on the part with the lowest id (part, port number)
+local function jointAt(st, key)
+	local bp, bi
+	for _, o in ipairs(st.map[key] or {}) do
+		local p = st.parts[o[1]]
+		if p and p.links[o[2]] and (not bp or p.id < bp.id) then bp, bi = p, o[2] end
+	end
+	return bp, bi
+end
+SpaceGrid.StateJointAt = jointAt
+
+-- may this part go into a joint as its wall: a plug of the joint's size
+function SpaceGrid.IsPlug(id)
+	return id ~= nil and (string.find(id, "_cap$") or string.find(id, "_glasscap$") or string.find(id, "_fieldcap$")
+		or string.find(id, "_shuttercap$") or string.find(id, "_blastcap$") or string.find(id, "_jawscap$") or string.find(id, "_autocap$")) ~= nil   -- (the flat hangar doors)
+end
+
 function SpaceGrid.StateEnds(st)
 	local ends = {}
 	st.ends = ends
+	for key, cap in pairs(SpaceGrid.JointSeals(st)) do
+		local cdef = SpaceGrid.Parts[cap]
+		local bp, bi = jointAt(st, key)
+		local f = bp and bp.ports[bi]
+		if cdef and f and cdef.ports[1] and cdef.ports[1].type == f.type then
+			local pos, ang = SpaceGrid.Mate(cdef, 1, f.pos, f.dir, f.up, 0)
+			ends[key] = { t = cap, pos = snapPos(pos), ang = snap90(ang), part = bp.id, port = bi, joint = true }
+		end
+	end
 	if not cvClosed:GetBool() then return ends end
 	local open = st.open or {}
 	for _, part in pairs(st.parts) do
 		local def = SpaceGrid.Parts[part.t]
 		for i, f in ipairs(part.ports) do
-			local cap = not part.links[i] and SpaceGrid.EndCap[f.type]
+			local cap = not part.links[i] and not def.noends and SpaceGrid.EndCap[f.type]   -- (noends: a force-field plug)
 			local cdef = cap and SpaceGrid.Parts[cap]
 			if cdef then
 				local key = portKey(f.pos)
@@ -352,10 +392,49 @@ function SpaceGrid.StateEnds(st)
 end
 
 -- Guard. The game's physics crashed by chance when a frozen body of more than 1000 pieces was set moving (seen at
--- 1001, 1216 and 2048 pieces, never at 513 or below; 2026-11-13). Merged bodies stay far below that (2197 corridor
+-- 1001, 1216 and 2048 pieces, never at 513 or below). Merged bodies stay far below that (2197 corridor
 -- cells = 200 pieces), but a very big, very mixed ship could get there. Above MaxPieces a hull stays frozen: it can
 -- be built on, not moved (sv_hull.lua, cl_hull.lua and the entity ask SpaceGrid.TooBig).
-SpaceGrid.MaxPieces = SpaceGrid.MaxPieces or 600
+-- The trace test of the small entities that ride on a ship and answer traces themselves (ENT:TestCollision of the
+-- doors, fields, lifts, lamps, switches, nav boxes): their box mn..mx in the entity's space. A box that starts on or
+-- in it - a player touching it, or one a door shut on - is stopped only going into it through the face he is
+-- nearest to; every other way he goes free. (by a flat door's control panel he stuck and could not move - the plain
+-- ray test said "hit at once" for every way out of a touch.)
+local BOX_EPS = 0.5
+local BOX_FACES = { { 1, -1 }, { 1, 1 }, { 2, -1 }, { 2, 1 }, { 3, -1 }, { 3, 1 } }
+function SpaceGrid.BoxHit(ent, start, delta, isbox, extents, mn, mx)
+	if isbox and extents then mn, mx = mn - extents, mx + extents end
+	local pos, ang = ent:GetPos(), ent:GetAngles()
+	local ls = WorldToLocal(start, angle_zero, pos, ang)
+	if ls.x > mn.x - BOX_EPS and ls.x < mx.x + BOX_EPS and ls.y > mn.y - BOX_EPS and ls.y < mx.y + BOX_EPS and ls.z > mn.z - BOX_EPS and ls.z < mx.z + BOX_EPS then
+		-- how deep in it a place is (0 or less: outside or on its face), and the face it is nearest to
+		local function depth(q)
+			local best, n = math.huge, nil
+			for _, f in ipairs(BOX_FACES) do
+				local d = f[2] < 0 and q[f[1]] - mn[f[1]] or mx[f[1]] - q[f[1]]
+				if d < best then
+					best = d
+					n = Vector(0, 0, 0)
+					n[f[1]] = f[2]
+				end
+			end
+			return best, n
+		end
+		local d0, n = depth(ls)
+		local ld = WorldToLocal(delta, angle_zero, vector_origin, ang)
+		-- only a move that goes deeper in is stopped: one who stands right in the middle of a shut door goes out either
+		-- way (the nearest face alone stopped him going out of the other one)
+		local d1 = depth(ls + ld)
+		if d1 <= math.max(d0, 0) + 0.01 then return nil end
+		return { HitPos = start, Fraction = 0, Normal = LocalToWorld(n, angle_zero, vector_origin, ang) }
+	end
+	local hit, normal, frac = util.IntersectRayWithOBB(start, delta, pos, ang, mn, mx)
+	if hit then return { HitPos = hit, Fraction = frac, Normal = normal } end
+end
+
+-- (the cause was the physics' pair list of a moving body; a hull now follows its keel as a shadow and has no such list
+-- - sv_keel.lua. The guard stays for very big ships, where building and drawing get slow.)
+SpaceGrid.MaxPieces = SpaceGrid.MaxPieces or 4000
 function SpaceGrid.TooBig(ent)
 	return IsValid(ent) and ent.SpaceGridHull == true and (ent.SGPieces or 0) > SpaceGrid.MaxPieces
 end
@@ -501,6 +580,50 @@ function SpaceGrid.StateRayPort(st, start, dir, maxT, ptype)
 	return best, bi, bt, bout, other
 end
 
+-- The joint a ray passes through (hull space; a joint = two joined openings at one place), nearest first, of the
+-- size `ptype` if given: its key, the carrier part and port (StateJointAt), the distance - or nil.
+function SpaceGrid.StateRayJoint(st, start, dir, maxT, ptype)
+	local bkey, bp, bi, bt
+	for _, p in pairs(st.parts) do
+		for i, f in ipairs(p.ports) do
+			local pt = p.links[i] and (not ptype or f.type == ptype) and SpaceGrid.PortTypes[f.type]
+			local dn = pt and not pt.mount and dir:Dot(f.dir) or 0
+			if math.abs(dn) > 0.05 then
+				local t = (f.pos - start):Dot(f.dir) / dn
+				if t > 0 and t <= maxT and (not bt or t < bt - 0.5) then
+					local off = start + dir * t - f.pos
+					if math.abs(off:Dot(f.up)) <= pt.h / 2 and math.abs(off:Dot(f.dir:Cross(f.up))) <= pt.w / 2 then
+						local key = portKey(f.pos)
+						local cp, ci = jointAt(st, key)
+						if cp then bkey, bp, bi, bt = key, cp, ci, t end
+					end
+				end
+			end
+		end
+	end
+	return bkey, bp, bi, bt
+end
+
+-- The joint (two parts joined at an opening) of type ptype nearest to a point (hull space), within maxDist of the
+-- opening's middle. Returns key, carrier part, port, distance - or nil. (a plug aimed from outside at the seam of two
+-- joined halls was refused - "no free port of that size here" - though the joint was right there.)
+function SpaceGrid.StateNearJoint(st, pos, maxDist, ptype)
+	local bkey, bp, bi, bd
+	for _, p in pairs(st.parts) do
+		for i, f in ipairs(p.ports) do
+			if p.links[i] and (not ptype or f.type == ptype) and not SpaceGrid.IsMount(f.type) then
+				local d = f.pos:Distance(pos)
+				if d <= maxDist and (not bd or d < bd - 0.5) then
+					local key = portKey(f.pos)
+					local cp, ci = jointAt(st, key)
+					if cp then bkey, bp, bi, bd = key, cp, ci, d end
+				end
+			end
+		end
+	end
+	return bkey, bp, bi, bd
+end
+
 -- how many ports are open (nothing joined there)
 function SpaceGrid.StateOpenPorts(st)
 	local n = 0
@@ -534,6 +657,18 @@ function SpaceGrid.PlacementAt(st, typ, own, twist, tp, ti)
 	local f = tp.ports[ti]
 	if not f or tp.links[ti] or f.type ~= ptype then return nil, "no free port of that size here" end
 	if not SpaceGrid.TwistAllowed(ptype, twist) then twist = 0 end
+	-- The turn counts from the way the part stands upright on the ship (its up nearest the hull's up). On an opening
+	-- of a part that was itself set on turned (a hall joined upside down), "not turned" was turned too: a cockpit came
+	-- on sideways or on its head (the author's play test). Where the opening sits upright the upright way is turn 0, as
+	-- before.
+	local sq = SpaceGrid.PortTypes[ptype] and SpaceGrid.PortTypes[ptype].square
+	local base, upBest = 0, -2
+	for b = 0, 3, sq and 1 or 2 do
+		local _, a = SpaceGrid.Mate(def, own, f.pos, f.dir, f.up, b)
+		local u = a:Up().z
+		if u > upBest + 0.01 then base, upBest = b, u end
+	end
+	twist = (base + (twist or 0)) % 4
 	local pos, ang = SpaceGrid.Mate(def, own, f.pos, f.dir, f.up, twist)
 	pos, ang = snapPos(pos), snap90(ang)
 	-- a mount on a deck inside a room (cargo stands there): the part it stands in is not in its way

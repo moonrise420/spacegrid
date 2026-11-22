@@ -1,6 +1,84 @@
 -- SpaceGrid: hulls on the client - take the part list from the server, build the same collision body, draw the parts.
 local pending = {}   -- entity index -> { rev, total, parts = {} } while the chunks of a list arrive
 
+-- Every model and merged-mesh helper drawn for a hull is noted here with its hull and the list that holds it. Once a
+-- second they are looked over: one whose hull is gone, or whose hull no longer holds it, is removed; one that has come
+-- off its hull is hung on it again. (A player,: after deleting, one part's model stayed in the world - it looked like
+-- a prop, touched nothing and did not go on "Clear everything". No way of removing found in the tests left one; this
+-- catches whatever does - e.g. a full update that makes the hull entity anew on a server.) The
+-- look-over goes a few pieces per frame (64), not all at once: all 2400 pieces of a 2048-part ship in one go took 1.5
+-- ms (2.4 ms at worst) - a small jolt once a second (measured). A round starts at most once a second.
+local owned = {}   -- model -> { hull, holder (the table that holds it), key, lpos, lang }
+local list = {}    -- the same models in a row, for the look-over
+local BATCH = 64
+function SpaceGrid.OwnModel(m, hull, holder, key, lpos, lang)
+	if not owned[m] then list[#list + 1] = m end
+	owned[m] = { hull = hull, holder = holder, key = key, lpos = lpos, lang = lang }
+end
+local function holds(o, m)
+	local h = o.hull
+	if not IsValid(h) or not h.SpaceGridHull then return false end
+	local t = o.holder
+	if t ~= h.SGModels and t ~= h.SGEndModels and not (h.SGChunks and h.SGChunks[o.key] == t) then return false end
+	if t.ents then
+		for _, e in ipairs(t.ents) do if e == m then return true end end
+		return false
+	end
+	return t[o.key] == m
+end
+-- one piece looked over: true = it stays in the row
+local function look(m)
+	local o = owned[m]
+	if not o or not IsValid(m) then
+		owned[m] = nil
+		return false
+	end
+	if not holds(o, m) then
+		m.SGRender = nil   -- (a merged-mesh helper: it must not draw its mesh any more)
+		m:SetNoDraw(true)
+		m:Remove()
+		owned[m] = nil
+		return false
+	end
+	if m:GetParent() ~= o.hull then
+		m:SetParent(o.hull)
+		m:SetLocalPos(o.lpos)
+		m:SetLocalAngles(o.lang)
+	end
+	return true
+end
+local cursor, nextRound = 1, 0
+-- up to `n` pieces from where the round stands (a piece that goes takes the last one's place in the row)
+local function step(n, now)
+	if cursor > #list then
+		if not now and RealTime() < nextRound then return end
+		cursor, nextRound = 1, RealTime() + 1
+	end
+	local done = 0
+	while done < n and cursor <= #list do
+		if look(list[cursor]) then
+			cursor = cursor + 1
+		else
+			list[cursor] = list[#list]
+			list[#list] = nil
+		end
+		done = done + 1
+	end
+end
+local paused = false
+hook.Add("Think", "SpaceGrid.ModelSweep", function()
+	if not paused then step(BATCH) end
+end)
+-- for tests: one whole round at once, one frame's share, pause / go on, how many are noted
+function SpaceGrid.ModelSweep()
+	cursor = #list + 1
+	nextRound = 0
+	step(math.huge)
+end
+function SpaceGrid.ModelSweepStep() step(BATCH, true) end   -- (a round goes on at once: every call does a full share)
+function SpaceGrid.ModelSweepPause(p) paused = p and true or false end
+function SpaceGrid.OwnedCount() return #list end
+
 -- one model per part, hanging on the hull (the engine culls and lights them one by one)
 -- the model of one part: made, moved or (the part is gone) removed
 local function syncPart(hull, pid)
@@ -25,6 +103,7 @@ local function syncPart(hull, pid)
 	end
 	m:SetLocalPos(p.pos)
 	m:SetLocalAngles(p.ang)
+	SpaceGrid.OwnModel(m, hull, models, pid, p.pos, p.ang)
 	if def.skin then m:SetSkin(def.skin) end
 	m:SetNoDraw(hull:IsDormant())
 end
@@ -53,6 +132,7 @@ local function syncEnds(hull)
 				m:SetLocalAngles(e.ang)
 				m:SetNoDraw(hull:IsDormant())
 				have[key] = m
+				SpaceGrid.OwnModel(m, hull, have, key, e.pos, e.ang)
 			end
 		end
 	end

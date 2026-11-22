@@ -1,7 +1,7 @@
 -- SpaceGrid: every sound of the kit in one place. All are recordings that ship with the game - the addon only names
--- them. The owner chose them by ear on 2026-11-14 (sound board: claude.ai/artifact/QtFkJ1hdGhB9zciRCNmNdt, its
--- database document board/picks). His rule: where he chose nothing there is no sound - so a use without an entry
--- here stays silent, and nothing plays a sound that is not in this table.
+-- them. The author chose them by ear (its database document board/picks). His rule: where he chose nothing
+-- there is no sound - so a use without an entry here stays silent, and nothing plays a sound that is not in this
+-- table.
 SpaceGrid.Sounds = {
 	-- one set for each kind of door: first = with the first movement (bolts), open / close = the movement,
 	-- stop = when it has come to rest, hiss = air (airlock)

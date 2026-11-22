@@ -47,6 +47,7 @@ function ENT:SetupDataTables()
 	self:NetworkVar("Int", 0, "Wide")   -- the opening's width: 64 or 128; a gate's as its part says
 	self:NetworkVar("Int", 1, "Kind")
 	self:NetworkVar("Int", 2, "Tall")   -- a gate's height; 0 = a doorway's 96
+	self:NetworkVar("Bool", 2, "Flat")  -- a flat hangar door in the joint of two halls: its posts are only 16 deep
 end
 
 function ENT:SGTall()
@@ -62,14 +63,17 @@ local function tooth(w) return 8 + (w + 40) / 64 end
 -- the sheet (6 thick to each side: a thin sheet lets a fast prop slip through between two ticks)
 local function sheetBox(w, t) return Vector(-6, -w / 2, -t / 2), Vector(6, w / 2, t / 2) end
 -- what stays solid of an open door: the strip over a doorway, the control panel on a gate's post
-local function restBox(w, t, gate)
+-- (a flat hangar door,: its panel stands 2.5 out of a 16 deep post and nothing of it reaches into the opening - a
+-- deep gate post's box stood 10 out of the flat door's faces, unseen, just where one stands at the panel)
+local function restBox(w, t, gate, flat)
+	if gate and flat then return Vector(-11, -w / 2 - 12, -t / 2 + 34), Vector(11, -w / 2, -t / 2 + 60) end
 	if gate then return Vector(-18, -w / 2 - 12, -t / 2 + 34), Vector(18, -w / 2 + 2, -t / 2 + 60) end
 	return Vector(-18, -w / 2, t / 2 + 1), Vector(18, w / 2, t / 2 + 7)
 end
 -- the bounds of a shut door: a doorway's sheet; a gate's sheet and its control panel in one box (what of it is
 -- solid, TestCollision says)
-local function shutBox(w, t, gate)
-	if gate then return Vector(-18, -w / 2 - 12, -t / 2), Vector(18, w / 2, t / 2) end
+local function shutBox(w, t, gate, flat)
+	if gate then return Vector(flat and -11 or -18, -w / 2 - 12, -t / 2), Vector(flat and 11 or 18, w / 2, t / 2) end
 	return sheetBox(w, t)
 end
 
@@ -85,7 +89,7 @@ function ENT:Initialize()
 		end
 		self:SetMoveType(MOVETYPE_NONE)
 		self:SetSolid(SOLID_OBB)
-		self:SetCollisionBounds(shutBox(w, self:SGTall(), self:SGIsGate()))
+		self:SetCollisionBounds(shutBox(w, self:SGTall(), self:SGIsGate(), self:GetFlat()))
 		self:SetUseType(SIMPLE_USE)
 		self:SetTrigger(true)
 		self:DrawShadow(false)
@@ -97,13 +101,10 @@ function ENT:Initialize()
 end
 
 -- Rays - shots, the tool gun's aim, the Wire tool - do not see the plain oriented box of an entity; only box-shaped
--- traces (a walking player) do. Measured 2026-11-14: every line trace went straight through a shut door and a
--- field that was on. So the entity answers traces itself: the same box, tested here, for rays and boxes alike.
-local function hitBox(self, start, delta, isbox, extents, mn, mx)
-	if isbox and extents then mn, mx = mn - extents, mx + extents end
-	local hit, normal, frac = util.IntersectRayWithOBB(start, delta, self:GetPos(), self:GetAngles(), mn, mx)
-	if hit then return { HitPos = hit, Fraction = frac, Normal = normal } end
-end
+-- traces (a walking player) do. Measured: every line trace went straight through a shut door and a field that
+-- was on. So the entity answers traces itself: the same box, tested here, for rays and boxes alike.
+-- (SpaceGrid.BoxHit, sh_core.lua: a player touching the box is stopped only going into it)
+local function hitBox(self, start, delta, isbox, extents, mn, mx) return SpaceGrid.BoxHit(self, start, delta, isbox, extents, mn, mx) end
 
 function ENT:TestCollision(start, delta, isbox, extents)
 	local mn, mx = self:GetCollisionBounds()
@@ -111,7 +112,7 @@ function ENT:TestCollision(start, delta, isbox, extents)
 		-- a shut gate: its bounds hold the sheet and the control panel; solid are those two, not the post between
 		local w, t = self:GetWide(), self:SGTall()
 		local a = hitBox(self, start, delta, isbox, extents, sheetBox(w, t))
-		local b = hitBox(self, start, delta, isbox, extents, restBox(w, t, true))
+		local b = hitBox(self, start, delta, isbox, extents, restBox(w, t, true, self:GetFlat()))
 		if a and b then return a.Fraction <= b.Fraction and a or b end
 		return a or b
 	end
@@ -135,7 +136,8 @@ if SERVER then
 		self.SGMove = id
 		local function settle()
 			if not IsValid(self) or self.SGMove ~= id then return end
-			if open then self:SetCollisionBounds(restBox(w, t, gate)) else self:SetCollisionBounds(shutBox(w, t, gate)) end
+			local flat = self:GetFlat()
+			if open then self:SetCollisionBounds(restBox(w, t, gate, flat)) else self:SetCollisionBounds(shutBox(w, t, gate, flat)) end
 		end
 		local wait = open and k.pass or (gate and k.move - k.pass or 0)
 		if wait > 0 then timer.Simple(wait, settle) else settle() end
@@ -179,7 +181,23 @@ if SERVER then
 				SpaceGrid.Play(self, SpaceGrid.Sounds.denied, 60, 0.5)
 				return
 			end
-			self.SGWant = not self.SGWant
+			-- E goes by where the gate is going right now: opening or open - it shuts, shut or shutting - it opens, at
+			-- once, as often as one likes. (It flipped a switch the 0.2 s check read later, and that check kept it open
+			-- for a player standing at it - E then seemed to do nothing until he stepped aside; an automatic gate opened
+			-- again for who stood near.)
+			--
+			self.SGWant = not self:GetOpen()
+			if self.SGWant then
+				self.SGManualShut = nil
+				self:SGSetOpen(true)
+			elseif self.SGInWay then
+				SpaceGrid.Play(self, SpaceGrid.Sounds.denied, 60, 0.5)   -- (somebody stands in its opening)
+				self.SGWant = true
+			else
+				self.SGStay = 0
+				self.SGManualShut = true   -- (an automatic gate stays shut until nobody is near any more: sv_doors.lua)
+				self:SGSetOpen(false)
+			end
 			return
 		end
 		local hull = self:GetParent()
@@ -234,7 +252,7 @@ else
 
 	-- One model drawn at several places in one frame (the two leaves of a door): the game keeps a model's bones
 	-- for the frame, so without throwing them away each time every copy was drawn where the first one was set up
-	-- - both leaves of a door in one place (the owner, 2026-11-15: an open door with a leaf still in the middle).
+	-- - both leaves of a door in one place (the owner,: an open door with a leaf still in the middle).
 	local function drawAt(ent, pos, ang)
 		ent:SetRenderOrigin(pos); ent:SetRenderAngles(ang)
 		ent:InvalidateBoneCache(); ent:SetupBones(); ent:DrawModel()
@@ -329,9 +347,9 @@ else
 		else
 			-- two leaves: closed they meet in the middle; open each has slid its own width into the wall. What leaves
 			-- the doorway is cut off: beside some doorways there is no wall to hide a leaf (the stairs' foot in the
-			-- command deck - the owner, 2026-11-15: "the door did not open completely").
-			-- (each leaf is a model of its own: the door's own model drawn twice at two places came out as one leaf
-			-- standing in the middle of the open doorway in some doors - the owner, 2026-11-15)
+			-- command deck - the owner,: "the door did not open completely"). (each leaf
+			-- is a model of its own: the door's own model drawn twice at two places came out as one leaf standing in
+			-- the middle of the open doorway in some doors - the owner)
 			local s = smooth(f)
 			local off = w / 4 + s * (w / 2 + 1)
 			local pos = self:GetPos()

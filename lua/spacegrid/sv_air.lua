@@ -20,31 +20,54 @@ local function airOf(def)
 			local n = a:Forward()
 			local side = (mid - d.pos):Dot(n)
 			planes[#planes + 1] = { pos = d.pos, n = n, t = a:Right(), half = (d.w or 64) / 2 + 8, kind = kind, i = i,
-				inner = math.abs(side) >= 2 and (side > 0 and 1 or -1) or 0 }
+				inner = math.abs(side) >= 2 and (side > 0 and 1 or -1) or 0, join = def.air and d.join or nil }
 		end
 	end
 	add(def.doors or (def.door and { def.door }), "door")
 	add(def.fields, "field")
-	local air = { planes = planes, port = {} }
+	-- a part with air rooms (def.air: room box -> air room): a door with join = { a, b } joins air rooms a and b and
+	-- gets no bit of its own; the other sheets keep their bit. The air room sits above those bits in the section.
+	local nbit = 0
+	for _, pl in ipairs(planes) do
+		if not pl.join then pl.bit = bit.lshift(1, nbit); nbit = nbit + 1 end
+	end
+	local air = { planes = planes, port = {}, shift = def.air and bit.lshift(1, nbit) or nil }
 	def.SGAir = air
 	for i, p in ipairs(def.ports) do air.port[i] = SpaceGrid.AirSection(def, p.pos) end
 	return air
 end
 
--- the section of a part (a number: one bit per sheet) that a place in part space lies in
+-- the air room (def.air) of the room box a place lies in: first the box it lies in, else the first box it lies in
+-- with each box grown by GROW (ports and doorways on the walls); 0 = in no box
+local GROW = 16
+local function airRoom(def, q)
+	for g = 0, GROW, GROW do
+		for i, r in ipairs(def.rooms or {}) do
+			local a, b = r[1], r[2]
+			if q.x >= a.x - g and q.x <= b.x + g and q.y >= a.y - g and q.y <= b.y + g and q.z >= a.z - g and q.z <= b.z + g then
+				return def.air[i] or 0
+			end
+		end
+	end
+	return 0
+end
+
+-- the section of a part (a number: one bit per sheet without join, plus air room * shift) that a place in part space lies in
 function SpaceGrid.AirSection(def, q)
 	local air = def.SGAir or airOf(def)
-	local s = 0
-	for k, pl in ipairs(air.planes) do
-		local rel = q - pl.pos
-		local d = rel:Dot(pl.n)
-		local out
-		if pl.inner == 0 then
-			out = d > 0
-		else
-			out = (d > 0) ~= (pl.inner > 0) and math.abs(rel:Dot(pl.t)) <= pl.half
+	local s = air.shift and airRoom(def, q) * air.shift or 0
+	for _, pl in ipairs(air.planes) do
+		if pl.bit then
+			local rel = q - pl.pos
+			local d = rel:Dot(pl.n)
+			local out
+			if pl.inner == 0 then
+				out = d > 0
+			else
+				out = (d > 0) ~= (pl.inner > 0) and math.abs(rel:Dot(pl.t)) <= pl.half
+			end
+			if out then s = s + pl.bit end
 		end
-		if out then s = s + bit.lshift(1, k - 1) end
 	end
 	return s
 end
@@ -59,6 +82,26 @@ local function passes(hull, pid, pl)
 	local g = hull.SGFields and hull.SGFields[pid]
 	local e = g and g[pl.i]
 	return not IsValid(e) or not e:GetOn()
+end
+
+-- is the joint at this place (hull space) shut by a wall in it: a cap or a glass plug always, a force-field plug
+-- while its field is on (as a field of a part: passes above)
+local function jointShut(hull, st, pos)
+	local ends = st.ends
+	if not ends or not next(ends) then return false end
+	local key = SpaceGrid.PortKey(pos)
+	local e = ends[key]
+	if not e or not e.joint then return false end
+	-- (a flat hangar door,: shut while its door is shut)
+	if SpaceGrid.Parts[e.t].door then
+		local dg = hull.SGDoors and hull.SGDoors["j" .. key]
+		local d = dg and dg[1]
+		return IsValid(d) and not d:GetOpen()
+	end
+	if not SpaceGrid.Parts[e.t].fields then return true end
+	local g = hull.SGFields and hull.SGFields["j" .. key]
+	local f = g and g[1]
+	return IsValid(f) and f:GetOn()
 end
 
 -- Is the room at a place of the hull (hull space) sealed? true / false; nil = the place is in no part.
@@ -93,6 +136,8 @@ function SpaceGrid.SealedAt(hull, lpos)
 					local o = l and st.parts[l[1]]
 					-- an opening that leads outside - unless its end wall shuts it (sh_core.lua, StateEnds)
 					if not o and not (st.ends and st.ends[SpaceGrid.PortKey(p.ports[i].pos)]) then sealed = false break end
+					-- a wall in the joint (sh_core.lua, JointSeals): no way through - a force field only while it holds
+					if o and jointShut(hull, st, p.ports[i].pos) then o = nil end
 					if o then
 						local odef = SpaceGrid.Parts[o.t]
 						local k2 = o.id * 65536 + (odef.SGAir or airOf(odef)).port[l[2]]
@@ -100,10 +145,18 @@ function SpaceGrid.SealedAt(hull, lpos)
 					end
 				end
 			end
-			for k, pl in ipairs(air.planes) do
+			for _, pl in ipairs(air.planes) do
 				if passes(hull, pid, pl) then
-					local k2 = pid * 65536 + bit.bxor(sec, bit.lshift(1, k - 1))
-					if not seen[k2] then seen[k2] = true; queue[#queue + 1] = k2 end
+					local k2
+					if pl.bit then
+						k2 = pid * 65536 + bit.bxor(sec, pl.bit)
+					else   -- an open door between two air rooms: the same bits, the other room
+						local bits = sec % air.shift
+						local r = math.floor(sec / air.shift)
+						local o = r == pl.join[1] and pl.join[2] or r == pl.join[2] and pl.join[1] or nil
+						if o then k2 = pid * 65536 + o * air.shift + bits end
+					end
+					if k2 and not seen[k2] then seen[k2] = true; queue[#queue + 1] = k2 end
 				end
 			end
 		end
@@ -144,8 +197,8 @@ end)
 
 -- Under water a ship does not push the water out: the game still counts a player in a sealed room as under water
 -- and drowns him after a few seconds - its own damage, apart from PowerGrid's suit air. A sealed room has air, so
--- that damage does not come (the owner, 2026-11-15: "under water in our ships we have also oxygen?"; the same as
--- AGP's ships and PowerGrid's core ships do).
+-- that damage does not come (the owner,: "under water in our ships we have also oxygen?"; the same as AGP's ships
+-- and PowerGrid's core ships do).
 hook.Add("EntityTakeDamage", "SpaceGrid.SealedNoDrown", function(ent, dmg)
 	if ent:IsPlayer() and dmg:IsDamageType(DMG_DROWN) and ent:WaterLevel() >= 3 and SpaceGrid.Sealed(ent) then return true end
 end)

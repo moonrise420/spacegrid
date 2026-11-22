@@ -40,9 +40,8 @@ end
 -- (rays - the Wire tool's aim - do not see the plain box of an entity that rides on a ship: see spacegrid_field.lua)
 function ENT:TestCollision(start, delta, isbox, extents)
 	local mn, mx = self:GetCollisionBounds()
-	if isbox and extents then mn, mx = mn - extents, mx + extents end
-	local hit, normal, frac = util.IntersectRayWithOBB(start, delta, self:GetPos(), self:GetAngles(), mn, mx)
-	if hit then return { HitPos = hit, Fraction = frac, Normal = normal } end
+	return SpaceGrid.BoxHit(self, start, delta, isbox, extents, mn, mx)   -- (a touching player goes free: sh_core.lua)
+
 end
 
 -- the numbers: position, the ship's angle, heading (0..360), pitch (nose up = positive), roll, height over the ground
@@ -61,7 +60,7 @@ if SERVER then
 		if self.Outputs then
 			local pos, ang, heading, pitch, roll, alt = self:SGNav()
 			local hull = self:GetParent()
-			local phys = IsValid(hull) and hull:GetPhysicsObject()
+			local phys = IsValid(hull) and (SpaceGrid.Body and SpaceGrid.Body(hull) or hull:GetPhysicsObject())   -- (the keel: sv_keel.lua)
 			local vel = IsValid(phys) and phys:IsMotionEnabled() and phys:GetVelocity() or vector_origin
 			WireLib.TriggerOutput(self, "Position", pos)
 			WireLib.TriggerOutput(self, "Velocity", vel)
@@ -79,7 +78,7 @@ if SERVER then
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
--- The screen: 10 dots to a unit, so 840 x 440 dots. Large letters on a plain dark ground (the owner, 2026-11-14:
+-- The screen: 10 dots to a unit, so 840 x 440 dots. Large letters on a plain dark ground (the owner,:
 -- "navigation console can't be read good" - the first one wrote small numbers over the model's busy screen picture).
 surface.CreateFont("SpaceGridNavS", { font = "Roboto", size = 38, weight = 600, extended = true })
 surface.CreateFont("SpaceGridNavR", { font = "Roboto", size = 48, weight = 700, extended = true })

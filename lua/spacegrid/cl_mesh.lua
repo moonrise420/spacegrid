@@ -1,10 +1,10 @@
 -- SpaceGrid: cheaper drawing of big ships. One model per part costs a handful of draw calls each: 512 parts halve the
--- frame rate, 2197 parts leave 35 fps (measured 2026-11-13). So a ship that has been left alone for a moment is
--- "baked": the parts of one block of space (CELL units) become a few merged meshes, one per material, and their
--- single models go away. A part that is touched (added to, taken off) turns its block back into single models at
--- once, so building never waits for a bake; baking runs in small slices of a frame.
--- Switch: spacegrid_mesh 0 / 1 (client), on by default since 2026-11-13: measured 45 -> 249 fps at 2197 parts,
--- 148 -> 254 fps on 256 real kit parts, close-up pictures compared with the single models.
+-- frame rate, 2197 parts leave 35 fps (measured). So a ship that has been left alone for a moment is "baked":
+-- the parts of one block of space (CELL units) become a few merged meshes, one per material, and their single
+-- models go away. A part that is touched (added to, taken off) turns its block back into single models at once,
+-- so building never waits for a bake; baking runs in small slices of a frame.
+-- Switch: spacegrid_mesh 0 / 1 (client), on by default: measured 45 -> 249 fps at 2197 parts, 148 -> 254 fps
+-- on 256 real kit parts, close-up pictures compared with the single models.
 local cv = CreateClientConVar("spacegrid_mesh", "1", true, false, "SpaceGrid: draw ships that are left alone as a few merged meshes (1) or one model per part (0)")
 
 local CELL = 512         -- a block of space that is baked as one (64 S cells)
@@ -58,7 +58,7 @@ end
 
 -- A block's meshes go: their entities stop drawing at once and are removed; the meshes themselves are freed a
 -- moment later. (Freed at once, the game could still draw one in the same frame - the full suite crashed the game
--- with an access violation four times, 2026-11-15, whenever a part was added to a baked block.)
+-- with an access violation four times, whenever a part was added to a baked block.)
 local function dropChunk(c)
 	for _, e in ipairs(c.ents) do
 		if IsValid(e) then
@@ -170,9 +170,9 @@ local function bakeChunk(hull, key, change)
 					local tris = md.tris
 					local faceT
 					for i = 1, #tris do
-						-- A mesh may not pass the engine's limit of 65535 corners: the game crashed (2026-11-15) when a block
-						-- with the command deck and the great glass dome grew one material's mesh past it (the split used to
-						-- come only between two whole models). So: split between two triangles.
+						-- A mesh may not pass the engine's limit of 65535 corners: the game crashed when a block with the
+						-- command deck and the great glass dome grew one material's mesh past it (the split used to come
+						-- only between two whole models). So: split between two triangles.
 						if i % 3 == 1 and n + 3 > MAXV then
 							g.n = n
 							flush(g)
@@ -252,6 +252,7 @@ local function bakeChunk(hull, key, change)
 		for pid in pairs(old.pids) do hull.SGBaked[pid] = nil end
 	end
 	hull.SGChunks[key] = built
+	for _, e in ipairs(built.ents) do SpaceGrid.OwnModel(e, hull, built, key, centre, angle_zero) end   -- (cl_hull.lua: the sweep)
 	for pid in pairs(pids) do
 		hull.SGBaked[pid] = key
 		local m = hull.SGModels[pid]

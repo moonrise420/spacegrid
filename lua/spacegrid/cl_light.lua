@@ -9,7 +9,7 @@ local cvRoom = CreateClientConVar("spacegrid_roomlights", "1", true, false, "Spa
 local ROOMS, ROOM_RANGE = 4, 560      -- so many rooms are lit at once, the nearest within this range
 local LAMPS, LAMP_RANGE = 3, 4000     -- so many floodlights throw real light, the nearest within this range
 
-function SpaceGrid.LightsOn(hull) return not hull:GetNWBool("SGLightsOff", false) end
+function SpaceGrid.LightsOn(hull) return not hull:GetNWBool("SGLightsOff", false) and not hull:GetNWBool("SGWreck", false) end   -- (a wreck: dark, sv_flight.lua)
 
 -- the dark twin of the light strips' material
 local OFF

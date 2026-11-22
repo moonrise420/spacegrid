@@ -3,7 +3,7 @@
 -- The gate hides it by a clip plane on the entity it buffers - but a hull draws its parts as models of their own
 -- (and baked blocks, end walls, doors, devices are entities of their own), so the same plane is put on each of them
 -- here while the gate says the hull is in its buffer (NW "PhysBuffered", "PhysEntity", "PhysBufferedDir" - set by
--- the gate's physics clipping; the release chat's finding, 2026-11-15: "the ship stands out behind the ring").
+-- the gate's physics clipping; the release chat's finding,: "the ship stands out behind the ring").
 local KINDS = { "spacegrid_door", "spacegrid_field", "spacegrid_nav", "spacegrid_lamp", "spacegrid_lift" }
 
 local function drawn(hull)

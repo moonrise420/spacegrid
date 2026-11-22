@@ -32,16 +32,17 @@ end
 -- What is welded to a hull (a StarCore core, a Wire chip, a lamp) must stay on it, and a new collision body drops
 -- the constraints of the old one. So the welds to other entities are taken off before the body is rebuilt and made
 -- again after it (as StarCore does for its core when its model changes).
-local function takeWelds(hull)
+-- (pick: only the welds to the entities it says yes to - splitOff hands the cut-off half's own things on)
+local function takeWelds(hull, pick)
 	local list = {}
 	for _, c in ipairs(constraint.FindConstraints(hull, "Weld") or {}) do
 		local other, bone = c.Ent2, c.Bone2
 		if other == hull then other, bone = c.Ent1, c.Bone1 end
-		if IsValid(other) and other ~= hull then
+		if IsValid(other) and other ~= hull and (not pick or pick(other)) then
 			list[#list + 1] = { ent = other, bone = bone or 0, force = c.forcelimit or 0, nocollide = c.nocollide == true }
 			-- The old weld is only gone at the end of this tick, and while both entities still list it the new weld
-			-- is refused as a second one (seen 2026-11-14: a ship's core came loose with the first part added). So it
-			-- is struck from their lists here.
+			-- is refused as a second one (seen: a ship's core came loose with the first part added). So it is struck
+			-- from their lists here.
 			local old = c.Constraint
 			if IsValid(old) then
 				for _, e in ipairs({ hull, other }) do
@@ -64,29 +65,84 @@ local function giveWelds(hull, list)
 	end
 end
 
+-- A wall that comes where a player stands (a joint shut, an end made by taking a part away) held him in it (round 5 of
+-- the night loop: standing in the hangar joint of two halls, the second hall taken away - stuck in the first one's
+-- new hangar wall). So after a new body, a player standing in one of the ship's end walls is moved to the nearest free
+-- spot beside it. Only players at the walls are looked at; noclip and seated players are left alone.
+local function freePlayers(hull)
+	if not IsValid(hull) or not hull.SG then return end
+	local ends = SpaceGrid.StateEnds(hull.SG)   -- (fresh: the list of the last change is older than this body)
+	if not next(ends) then return end
+	local onlyHull = function(e) return e == hull end
+	for _, p in ipairs(player.GetAll()) do
+		-- (no distance check first: a hull's own bounds are its small first body, not the ship)
+		if p:Alive() and not p:InVehicle() and p:GetMoveType() == MOVETYPE_WALK then
+			local mn, mx = p:OBBMins(), p:OBBMaxs()
+			local lp = hull:WorldToLocal(p:WorldSpaceCenter())
+			local atWall = false
+			for _, e in pairs(ends) do
+				local def = SpaceGrid.Parts[e.t]
+				if def then
+					local a, b = SpaceGrid.PartBounds(def, e.pos, e.ang)
+					if lp.x > a.x - 40 and lp.x < b.x + 40 and lp.y > a.y - 40 and lp.y < b.y + 40 and lp.z > a.z - 48 and lp.z < b.z + 48 then atWall = true break end
+				end
+			end
+			-- (2 units up: standing on the floor is no wall)
+			local function solid(pos, filter)
+				local q = pos + Vector(0, 0, 2)
+				return util.TraceHull({ start = q, endpos = q, mins = mn, maxs = mx, filter = filter, mask = MASK_PLAYERSOLID }).StartSolid
+			end
+			if atWall and solid(p:GetPos(), onlyHull) then
+				local dirs = { hull:GetForward(), -hull:GetForward(), hull:GetRight(), -hull:GetRight(), hull:GetUp(), -hull:GetUp() }
+				local moved = false
+				for d = 16, 192, 16 do
+					for _, dir in ipairs(dirs) do
+						local q = p:GetPos() + dir * d
+						if not solid(q, p) then
+							p:SetPos(q + Vector(0, 0, 2))
+							moved = true
+							break
+						end
+					end
+					if moved then break end
+				end
+			end
+		end
+	end
+end
+
 -- rebuild the collision body and tell the clients (call once after a batch of changes)
-function SpaceGrid.Commit(hull)
+-- (keepCore: the change is no building - the landing legs folding or unfolding, sv_gear.lua: the ship's StarCore core
+-- stays even with nobody at the helm, the release chat's picture run: a pilot got up in fast flight, the parked ship
+-- slowed down, the legs came out and took the core with its tractor beam, shields, weapons and crew)
+function SpaceGrid.Commit(hull, keepCore)
 	if not IsValid(hull) then return false end
 	if hull.SG.count == 0 then hull:Remove() return false end
 	local t0 = SysTime()
-	-- an end opened by hand stays open only while it is an open end (joined since: forgotten)
+	-- an end opened by hand stays open only while it is an open end (joined since: forgotten); a wall in a joint
+	-- ("<key>=<plug>", sh_core.lua) only while the joint is there
 	local open = hull.SG.open
 	if open and next(open) then
-		local free = {}
+		local free, joint = {}, {}
 		for _, p in pairs(hull.SG.parts) do
 			for i, f in ipairs(p.ports) do
-				if not p.links[i] then free[SpaceGrid.PortKey(f.pos)] = true end
+				if p.links[i] then joint[SpaceGrid.PortKey(f.pos)] = true else free[SpaceGrid.PortKey(f.pos)] = true end
 			end
 		end
 		for k in pairs(open) do
-			if not free[k] then open[k] = nil end
+			local jk = string.match(k, "^(.-)=")
+			if jk then
+				if not joint[jk] then open[k] = nil end
+			elseif not free[k] then
+				open[k] = nil
+			end
 		end
 	end
 	-- Something welded to the ship (its StarCore core, a Wire chip): the weld must be gone for real before the old
 	-- body is. A removed weld only goes at the end of the tick; rebuilt at once, the body left the old weld pointing
-	-- at a destroyed physics object - the game crashed in vphysics (access violation, five times on 2026-11-15, the
-	-- crash dumps say so). So then the body is rebuilt a tick later, and the welds are made again on the new one.
-	if SpaceGrid.DropIdleCore then SpaceGrid.DropIdleCore(hull) end   -- (building: the automatic StarCore core goes, sv_flight.lua)
+	-- at a destroyed physics object - the game crashed in vphysics (access violation, the crash dumps say so). So
+	-- then the body is rebuilt a tick later, and the welds are made again on the new one.
+	if not keepCore and SpaceGrid.DropIdleCore then SpaceGrid.DropIdleCore(hull) end   -- (building: the automatic StarCore core goes, sv_flight.lua)
 	local ok = true
 	local welds = takeWelds(hull)
 	if #welds > 0 or hull.SGRebuildQueued then
@@ -101,10 +157,12 @@ function SpaceGrid.Commit(hull)
 				local pending = hull.SGPendingWelds or {}
 				hull.SGPendingWelds = nil
 				giveWelds(hull, pending)
+				freePlayers(hull)
 			end)
 		end
 	else
 		ok = hull:SGRebuild()
+		freePlayers(hull)
 	end
 	hull.SGBuildMs = (SysTime() - t0) * 1000
 	hull.SGDirty = false
@@ -112,7 +170,9 @@ function SpaceGrid.Commit(hull)
 	-- a few changes since the last list: send only those (a click = one part); else the whole list
 	local log = hull.SG.log
 	hull.SG.log = {}
-	if log and hull.SGSent == hull.SG and #log > 0 and #log <= DELTA_MAX then
+	-- (an end opened or shut changes no part: an empty list of changes carries the opened ends -, R on an end cap sent
+	-- the whole ship to every player each time, and fast R presses made the game lag)
+	if log and hull.SGSent == hull.SG and #log <= DELTA_MAX then
 		SpaceGrid.SendDelta(hull, log)
 	else
 		SpaceGrid.SendHull(hull)
@@ -208,28 +268,84 @@ hook.Add("PhysgunPickup", "SpaceGrid.TooBig", refuseTooBig)
 -- a hull space transform -> the world
 local function toWorld(hull, lpos, lang) return LocalToWorld(lpos, lang, hull:GetPos(), hull:GetAngles()) end
 
+-- The ends opened by hand and the walls in joints (st.open, keyed by the opening's place) of some parts, carried to
+-- another hull's space: move(pos) gives an opening's place there. (a ship joined onto another one, or a piece that
+-- fell off, lost its opened ends and the plugs in its joints - their keys were left behind.)
+local function carryOpen(st, parts, move, into)
+	local open = st.open
+	if not open or not next(open) then return end
+	local seals = SpaceGrid.JointSeals(st)
+	for _, p in ipairs(parts) do
+		for _, f in ipairs(p.ports) do
+			local k = SpaceGrid.PortKey(f.pos)
+			if open[k] or seals[k] then
+				local nk = SpaceGrid.PortKey(SpaceGrid.SnapPos(move(f.pos)))
+				if open[k] then into[nk] = true end
+				if seals[k] then into[nk .. "=" .. seals[k]] = true end
+			end
+		end
+	end
+end
+
 -- A new hull from some parts of another (they keep their place in the world). Used when a hull falls apart.
 local function splitOff(hull, pids)
 	local first = hull.SG.parts[pids[1]]
 	local wpos, wang = toWorld(hull, first.pos, first.ang)
 	local n = SpaceGrid.CreateHull(wpos, wang, hull.SGOwner)
 	if not IsValid(n) then return nil end
+	local list = {}
 	for _, pid in ipairs(pids) do
 		local p = hull.SG.parts[pid]
+		list[#list + 1] = p
 		local lp, la = WorldToLocal(p.pos, p.ang, first.pos, first.ang)
 		SpaceGrid.StateAdd(n.SG, p.t, SpaceGrid.SnapPos(lp), SpaceGrid.Snap90(la))
 	end
+	n.SG.open = n.SG.open or {}
+	carryOpen(hull.SG, list, function(v) return (WorldToLocal(v, angle_zero, first.pos, first.ang)) end, n.SG.open)
+	-- what is welded on inside or on the cut-off parts (a crate, a lamp, a Wire chip) is welded to the new ship
+	-- (round 5: it stayed welded to the old one and hung in the air when the cut-off ship flew away)
+	local mine = takeWelds(hull, function(e)
+		local lp = hull:WorldToLocal(e:WorldSpaceCenter())
+		for _, p in ipairs(list) do
+			local mn, mx = SpaceGrid.PartBounds(SpaceGrid.Parts[p.t], p.pos, p.ang)
+			if mn and lp.x > mn.x - 48 and lp.x < mx.x + 48 and lp.y > mn.y - 48 and lp.y < mx.y + 48 and lp.z > mn.z - 48 and lp.z < mx.z + 48 then return true end
+		end
+		return false
+	end)
 	for _, pid in ipairs(pids) do SpaceGrid.StateRemove(hull.SG, pid) end
 	-- it moves on like the hull it came from
-	local op = hull:GetPhysicsObject()
+	local op = SpaceGrid.Body(hull)   -- (the keel moves the ship: sv_keel.lua)
 	local frozen = not IsValid(op) or not op:IsMotionEnabled()
-	SpaceGrid.Commit(n)
-	frozen = frozen or SpaceGrid.TooBig(n)
-	local np = n:GetPhysicsObject()
-	if IsValid(np) then
-		np:EnableMotion(not frozen)
-		if not frozen then np:SetVelocity(op:GetVelocity()); np:Wake() end
+	local vel = IsValid(op) and op:GetVelocity() or nil
+	-- (the old ship's keel is held still while a cut is made, sv_keel.lua KeelApart: how it moved before that)
+	local ok = hull.SGKeel
+	if IsValid(ok) and (ok.SGHolds or 0) > 0 and ok.SGWant ~= nil then
+		frozen = ok.SGWant == false
+		vel = ok.SGWant and ok.SGWant.vel or nil
 	end
+	SpaceGrid.Commit(n)
+	-- (welded a moment later, held still until then: welded in the tick the new body was made, the crate was crushed
+	-- by its own ship as soon as it flew -; a weld to a hull that stood a while held)
+	if #mine > 0 then
+		local held = {}
+		for _, w in ipairs(mine) do
+			local ph = IsValid(w.ent) and w.ent:GetPhysicsObject()
+			if IsValid(ph) and ph:IsMotionEnabled() then ph:EnableMotion(false); held[#held + 1] = w.ent end
+		end
+		timer.Simple(0.2, function()
+			if IsValid(n) then giveWelds(n, mine) end
+			timer.Simple(0.2, function()
+				for _, e in ipairs(held) do
+					local ph = IsValid(e) and e:GetPhysicsObject()
+					if IsValid(ph) then ph:EnableMotion(true); ph:Wake() end
+				end
+			end)
+		end)
+	end
+	frozen = frozen or SpaceGrid.TooBig(n)
+	SpaceGrid.KeelWant(n, not frozen, vel)
+	-- the two halves lie in each other's keels for a moment: they do not touch until apart (sv_keel.lua)
+	SpaceGrid.KeelApart(hull, n)
 	return n
 end
 
@@ -268,9 +384,13 @@ function SpaceGrid.CutJoint(hull, pid, port)
 	end
 	local islands = SpaceGrid.StateIslands(st)
 	local made = {}
+	-- (a damaged ship was back at 100 % later) the pieces cut off keep the ship's damage
+	local core = SpaceGrid.CoreOf and SpaceGrid.CoreOf(hull)
+	local frac = hull.SGHullFrac
+	if IsValid(core) and core.HullMax and core.HullMax > 0 and core.Hull then frac = math.Clamp(core.Hull / core.HullMax, 0, 1) end
 	for i = 2, #islands do
 		local h = splitOff(hull, islands[i])
-		if h then made[#made + 1] = h end
+		if h then made[#made + 1] = h; h.SGHullFrac = frac end
 	end
 	SpaceGrid.Commit(hull)
 	return made
@@ -292,16 +412,63 @@ function SpaceGrid.MergeHulls(a, pa, ia, b, pb, ib, twist)
 	if twist and twist % 4 ~= 0 then want:RotateAroundAxis(fb.dir, 90 * (twist % 4)) end
 	local ip, ia2 = WorldToLocal(vector_origin, angle_zero, fa.pos, fa.dir:AngleEx(fa.up))
 	local opos, oang = LocalToWorld(ip, ia2, fb.pos, want)
-	local moved = {}
+	local moved, list = {}, {}
 	for _, p in pairs(a.SG.parts) do
 		local lp, la = LocalToWorld(p.pos, p.ang, opos, oang)
 		lp, la = SpaceGrid.SnapPos(lp), SpaceGrid.Snap90(la)
 		if SpaceGrid.StateOverlap(b.SG, SpaceGrid.Parts[p.t], lp, la) then return false, "no room" end
 		moved[#moved + 1] = { p.t, lp, la }
+		list[#list + 1] = p
 	end
 	for _, m in ipairs(moved) do SpaceGrid.StateAdd(b.SG, m[1], m[2], m[3]) end
+	b.SG.open = b.SG.open or {}
+	carryOpen(a.SG, list, function(v) return (LocalToWorld(v, angle_zero, opos, oang)) end, b.SG.open)
+	-- What is welded to a (the owner's crates, a lamp on them, a StarCore core, a Wire chip) goes along with a's parts
+	-- to where they are joined, and is welded to b (round 5: the welds went with a, the crates stayed behind in the air,
+	-- loose). Not moved when it also hangs on another ship.
+	local group = constraint.GetAllConstrainedEntities(a) or {}
+	local welds = takeWelds(a)
+	local toShip = true
+	for e in pairs(group) do
+		if IsValid(e) and e ~= a and e:GetClass() == "spacegrid_hull" then toShip = false end
+	end
+	-- (held still until they are welded on again: loose for the tick the new body takes, a wooden crate fell into the
+	-- new floor and broke - seen)
+	local thaw = {}
+	if toShip then
+		local ap, aa = a:GetPos(), a:GetAngles()
+		local wp, wa = LocalToWorld(opos, oang, b:GetPos(), b:GetAngles())
+		for e in pairs(group) do
+			if IsValid(e) and e ~= a and not e:IsPlayer() then
+				local lp, la = WorldToLocal(e:GetPos(), e:GetAngles(), ap, aa)
+				local np, na = LocalToWorld(lp, la, wp, wa)
+				local ph = e:GetPhysicsObject()
+				if IsValid(ph) and ph:IsMotionEnabled() then
+					ph:EnableMotion(false)
+					thaw[#thaw + 1] = e
+				end
+				e:SetPos(np)
+				e:SetAngles(na)
+				if IsValid(ph) then ph:SetPos(np); ph:SetAngles(na); ph:SetVelocity(vector_origin) end
+			end
+		end
+	end
 	a:Remove()
 	SpaceGrid.Commit(b)
+	if b.SGRebuildQueued then
+		b.SGPendingWelds = b.SGPendingWelds or {}
+		for _, w in ipairs(welds) do table.insert(b.SGPendingWelds, w) end
+	else
+		giveWelds(b, welds)
+	end
+	if #thaw > 0 then
+		timer.Simple(0.3, function()
+			for _, e in ipairs(thaw) do
+				local ph = IsValid(e) and e:GetPhysicsObject()
+				if IsValid(ph) then ph:EnableMotion(true); ph:Wake() end
+			end
+		end)
+	end
 	return true
 end
 
@@ -311,7 +478,19 @@ function SpaceGrid.SetEndOpen(hull, key, open)
 	if not IsValid(hull) or not hull.SG then return end
 	hull.SG.open = hull.SG.open or {}
 	hull.SG.open[key] = open and true or nil
-	SpaceGrid.Commit(hull)
+	SpaceGrid.Commit(hull, true)   -- (no building: a parked ship keeps its StarCore core)
+end
+
+-- set a plug into a joint as its wall, or take it out (cap = nil); key: SpaceGrid.PortKey of the joint
+function SpaceGrid.SetJointSeal(hull, key, cap)
+	if not IsValid(hull) or not hull.SG then return end
+	local open = hull.SG.open or {}
+	hull.SG.open = open
+	for k in pairs(open) do
+		if string.sub(k, 1, #key + 1) == key .. "=" then open[k] = nil end
+	end
+	if cap then open[key .. "=" .. cap] = true end
+	SpaceGrid.Commit(hull, true)
 end
 
 -- the end wall a spot of the ship lies on (world), or nil: its key
@@ -323,13 +502,35 @@ function SpaceGrid.EndAtWorld(hull, wpos)
 	end
 end
 
--- the end opened by hand that a line from a spot (world) along a direction passes through within reach, or nil
+-- the end opened by hand that a line from a spot (world) along a direction passes through within reach, or nil: its
+-- key and how far along the line. Only the opened ends are asked (the author's play test: the nearest free
+-- opening on the line was asked alone - from outside a hangar that was the far end behind it, still shut, and R
+-- took the whole hangar away). A hand's width round the opening counts too: aimed at its rim, R means the end.
+local RIM = 12
 function SpaceGrid.OpenEndOnRay(hull, wstart, wdir, reach)
+	local open = hull.SG and hull.SG.open
+	if not open or not next(open) then return end
 	local ls = hull:WorldToLocal(wstart)
 	local ld = hull:WorldToLocal(wstart + wdir) - ls
-	local p, i = SpaceGrid.StateRayPort(hull.SG, ls, ld, reach or 250)
-	local key = p and SpaceGrid.PortKey(p.ports[i].pos)
-	if key and hull.SG.open and hull.SG.open[key] then return key end
+	reach = reach or 250
+	local bkey, bt
+	for _, p in pairs(hull.SG.parts) do
+		for i, f in ipairs(p.ports) do
+			local key = not p.links[i] and SpaceGrid.PortKey(f.pos)
+			local pt = key and open[key] and SpaceGrid.PortTypes[f.type]
+			local dn = pt and ld:Dot(f.dir) or 0
+			if math.abs(dn) > 0.05 then
+				local t = (f.pos - ls):Dot(f.dir) / dn
+				if t > 0 and t <= reach and (not bt or t < bt) then
+					local off = ls + ld * t - f.pos
+					if math.abs(off:Dot(f.up)) <= pt.h / 2 + RIM and math.abs(off:Dot(f.dir:Cross(f.up))) <= pt.w / 2 + RIM then
+						bkey, bt = key, t
+					end
+				end
+			end
+		end
+	end
+	return bkey, bt
 end
 
 function SpaceGrid.PartAtWorld(hull, wpos, normal)
@@ -349,6 +550,20 @@ hook.Add("CanTool", "SpaceGrid.Remover", function(ply, tr, mode, _, button)
 		if door then return false end   -- not his ship: its door stays too
 		return
 	end
+	-- a wall in a joint (sh_core.lua, JointSeals): only the wall goes, the two parts stay
+	local jkey = SpaceGrid.EndAtWorld(hull, tr.HitPos)
+	if jkey and hull.SG.ends[jkey] and hull.SG.ends[jkey].joint then
+		SpaceGrid.SetJointSeal(hull, jkey, nil)
+		return false
+	end
+	-- a door or field of a room (a Gate Hall's own doors): not the whole room for it, as with the build tool's R
+	if door then
+		local p = SpaceGrid.PartAtWorld(hull, tr.HitPos, tr.HitNormal)
+		if p and not SpaceGrid.IsDoorPart(p.t) then
+			SpaceGrid.Say(ply, "say.door_of_room")
+			return false
+		end
+	end
 	if hull.SG.count <= 1 then
 		if not door then return end   -- the last part: the stock Remover takes the hull
 		hull:Remove()                 -- (aimed at its door: the same, not the door alone)
@@ -358,4 +573,57 @@ hook.Add("CanTool", "SpaceGrid.Remover", function(ply, tr, mode, _, button)
 	if not part then return end
 	SpaceGrid.RemovePart(hull, part.id)
 	return false
+end)
+
+
+-- Crossbow bolts. A bolt that hits a ship is taken away by the game at once, without a mark (the game treats the ship
+-- as a body that takes damage: a thwack, gone) - in a map's wall a bolt sticks. So it looked as if it flew through.
+-- Now a bolt that hits a ship, its glass, a door or a field of it sticks in it as in a wall: the crossbow's own bolt
+-- model where it hit, riding on the ship, and the wall's sound. The damage it does is not changed.
+--
+local BOLT_MODEL, BOLT_KEEP, BOLT_MAX = "models/crossbow_bolt.mdl", 20, 24
+local stuckBolts = {}
+hook.Add("EntityTakeDamage", "SpaceGrid.BoltSticks", function(ent, dmg)
+	if not IsValid(ent) then return end
+	local bolt = dmg:GetInflictor()
+	if not IsValid(bolt) or bolt:GetClass() ~= "crossbow_bolt" or bolt.SGStuck then return end
+	local hull = ent.SpaceGridHull and ent or nil
+	if not hull then
+		local par = ent:GetParent()
+		if IsValid(par) and par.SpaceGridHull then hull = par end
+	end
+	if not hull then return end
+	bolt.SGStuck = true
+	local dir = bolt:GetVelocity()
+	if dir:LengthSqr() < 1 then dir = bolt:GetForward() end
+	dir:Normalize()
+	local p = bolt:GetPos()
+	local tr = util.TraceLine({ start = p - dir * 48, endpos = p + dir * 48, filter = function(e) return e == ent end })
+	local at = tr.Hit and tr.HitPos or p
+	timer.Simple(0, function()
+		if IsValid(bolt) then bolt:Remove() end   -- (with several players the game leaves it hanging where it hit)
+		if not IsValid(hull) then return end
+		local s = ents.Create("prop_dynamic")
+		if not IsValid(s) then return end
+		s:SetModel(BOLT_MODEL)
+		s:SetPos(at - dir * 6)
+		s:SetAngles(dir:Angle())
+		s:Spawn()
+		s:SetSolid(SOLID_NONE)
+		s:SetMoveType(MOVETYPE_NONE)
+		s:SetParent(hull)
+		s.DoNotDuplicate = true
+		s.PhysgunDisabled = true
+		s:EmitSound("Weapon_Crossbow.BoltHitWorld")
+		hull:DeleteOnRemove(s)
+		stuckBolts[#stuckBolts + 1] = s
+		while #stuckBolts > BOLT_MAX do
+			local old = table.remove(stuckBolts, 1)
+			if IsValid(old) then old:Remove() end
+		end
+		timer.Simple(BOLT_KEEP, function()
+			if IsValid(s) then s:Remove() end
+			table.RemoveByValue(stuckBolts, s)
+		end)
+	end)
 end)

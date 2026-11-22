@@ -10,7 +10,7 @@
 
 local cvAuto = CreateConVar("spacegrid_autocore", "1", FCVAR_ARCHIVE, "A SpaceGrid ship with a pilot seat gets a StarCore core by itself (needs the StarCore addon)")
 
-local PILOT = { "_cockpit2?$", "_bridge$", "^r2?_console$", "^r_captain$" }
+local PILOT = { "_cockpit2?$", "_bridge$", "^r_gatebridge$", "^r2?_console$", "^r_captain$" }   -- (r_gatebridge: the Gate Hall's bridge, - its name does not end in _bridge)
 local pilotPart = {}
 function SpaceGrid.IsPilotPart(id)
 	local r = pilotPart[id]
@@ -29,9 +29,14 @@ local function hasStarCore() return StarCore ~= nil and StarCore.Scan ~= nil and
 -- the StarCore core on this hull: the one SpaceGrid put there, or one welded on with StarCore's tool
 function SpaceGrid.CoreOf(hull)
 	if IsValid(hull.SGCore) then return hull.SGCore end
-	for _, c in ipairs(constraint.FindConstraints(hull, "Weld") or {}) do
-		local o = c.Ent1 == hull and c.Ent2 or c.Ent1
-		if IsValid(o) and o:GetClass() == "starcore" then return o end
+	-- (welded to the hull with StarCore's tool, or to its keel - sv_keel.lua)
+	for _, e in ipairs({ hull, hull.SGKeel }) do
+		if IsValid(e) then
+			for _, c in ipairs(constraint.FindConstraints(e, "Weld") or {}) do
+				local o = c.Ent1 == e and c.Ent2 or c.Ent1
+				if IsValid(o) and o:GetClass() == "starcore" then return o end
+			end
+		end
 	end
 	return nil
 end
@@ -47,10 +52,11 @@ function SpaceGrid.FirstPilotSeat(hull)
 end
 
 -- StarCore finds a ship's seats as the children of its parts - and the game lists none for a hull (measured
--- 2026-11-14: hull:GetChildren() is empty although every seat's parent is the hull). So the seats are handed to the
--- core as StarCore's tool hands it loose parts: core.ExtraParts.
+-- hull:GetChildren() is empty although every seat's parent is the hull). So the seats are handed to the core as
+-- StarCore's tool hands it loose parts: core.ExtraParts.
 local function giveSeats(hull, core)
 	core.ExtraParts = core.ExtraParts or {}
+	core.ExtraParts[hull] = true   -- (the core is welded to the keel; the ship one sees is a part of the ship too)
 	for _, g in pairs(hull.SGSeats or {}) do
 		for _, s in ipairs(g) do
 			if IsValid(s) then core.ExtraParts[s] = true end
@@ -61,7 +67,7 @@ end
 -- The automatic core exists only while somebody flies the ship: it is made when a player sits down at a pilot
 -- seat (SpaceGrid.TakeHelm) and taken off when the ship is built on while nobody sits at its helm (DropIdleCore,
 -- called by SpaceGrid.Commit). A core on a ship that was being built crashed the game in its physics - the full
--- suite crashed five times with it and passed 101 of 101 without it (2026-11-15).
+-- suite crashed five times with it and passed 101 of 101 without it.
 function SpaceGrid.DropIdleCore(hull)
 	local core = hull.SGCore
 	if not IsValid(core) or not core.SGAuto then return end
@@ -70,7 +76,13 @@ function SpaceGrid.DropIdleCore(hull)
 	if core.Helm and core.Helm.on and hasStarCore() then
 		StarCore.SetFrozen(core, true)          -- (a parked ship stays where it hovers)
 		StarCore.HelmSetOn(core, false)
+		-- (its keel held for a rebuild or a cut, sv_keel.lua: it stays where it is once let go)
+		local k = hull.SGKeel
+		if IsValid(k) and (k.SGHolds or 0) > 0 then k.SGWant = false end
 	end
+	-- its damage stays with the ship: the next core starts with it (a new core had the full hull, so building on
+	-- a damaged ship repaired it for free)
+	if core.HullMax and core.HullMax > 0 and core.Hull then hull.SGHullFrac = math.Clamp(core.Hull / core.HullMax, 0, 1) end
 	core:Remove()
 	hull.SGCore = nil
 end
@@ -107,11 +119,40 @@ function SpaceGrid.MakeCore(hull)
 		if core.CPPISetOwner then core:CPPISetOwner(owner) end
 		core:SetCreator(owner)
 	end
-	constraint.Weld(core, hull, 0, 0, 0, true, false)
+	constraint.Weld(core, IsValid(hull.SGKeel) and hull.SGKeel or hull, 0, 0, 0, true, false)   -- (the keel moves the ship: sv_keel.lua)
 	hull:DeleteOnRemove(core)
 	hull.SGCore = core
+	-- (damaged to 78 %, sat down again - 100 %) however the core goes (Replicators ate it, a blast, a rebuild), its damage
+	-- stays with the ship for the next core
+	core:CallOnRemove("SpaceGrid.KeepHull", function(c)
+		if IsValid(hull) and c.HullMax and c.HullMax > 0 and c.Hull then hull.SGHullFrac = math.Clamp(c.Hull / c.HullMax, 0, 1) end
+		-- gone while the pilot sits (the same play test: the HUD went and the ship fell out of the sky): the ship gets
+		-- its next core at once and the pilot keeps the helm. Not after a destroyed ship's end.
+		local pseat = c.PilotSeat
+		local ply = IsValid(pseat) and pseat:GetDriver()
+		if c.Destroyed or not IsValid(ply) then return end
+		timer.Simple(0, function()
+			if not IsValid(hull) or IsValid(hull.SGCore) or not IsValid(pseat) or pseat:GetDriver() ~= ply then return end
+			local nc = SpaceGrid.MakeCore(hull)
+			if not IsValid(nc) then return end
+			nc.PilotSeat = pseat
+			nc:SetNWEntity("starcore_pilotseat", pseat)
+			if StarCore.CrewAttach then StarCore.CrewAttach(nc) end
+			if StarCore.CanControl(nc, ply) and nc.Helm and not nc.Helm.on then StarCore.HelmSetOn(nc, true) end
+		end)
+	end)
 	giveSeats(hull, core)
 	StarCore.Scan(core)
+	-- the damage the last core left (DropIdleCore)
+	local frac = hull.SGHullFrac
+	if frac and frac < 1 then
+		if not core.HullMax and StarCore.CrewAttach then StarCore.CrewAttach(core) end
+		if core.HullMax and core.HullMax > 0 then
+			core.Hull = math.max(1, math.floor(core.HullMax * frac))
+			core:SetNWInt("starcore_hull", core.Hull)
+		end
+	end
+	hull.SGHullFrac = nil
 	return core
 end
 
@@ -144,7 +185,7 @@ end
 
 -- The pilot gets up: the ship is parked where it hovers (StarCore's own parking: frozen until somebody steers
 -- again). A hovering ship is a moving body, and walking inside a moving body is where players got stuck
--- (the owner, 2026-11-15); a parked one is as firm as a ship that never flew.
+-- (the owner); a parked one is as firm as a ship that never flew.
 hook.Add("PlayerLeaveVehicle", "SpaceGrid.Park", function(_, veh)
 	if not IsValid(veh) or not veh.SGPilot or not hasStarCore() then return end
 	local hull = veh:GetParent()
@@ -171,11 +212,34 @@ end)
 timer.Create("SpaceGrid.TooBigStays", 1, 0, function()
 	for _, hull in ipairs(ents.FindByClass("spacegrid_hull")) do
 		if SpaceGrid.TooBig(hull) then
-			local phys = hull:GetPhysicsObject()
+			local phys = SpaceGrid.Body(hull)
 			if IsValid(phys) and phys:IsMotionEnabled() then
 				phys:EnableMotion(false)
 				local core = hasStarCore() and SpaceGrid.CoreOf(hull)
 				if IsValid(core) and core.Helm and core.Helm.on then StarCore.HelmSetOn(core, false) end
+			end
+		end
+	end
+end)
+
+-- a ship StarCore destroys as a wreck (starcore_destroy_mode 1) keeps its hull - one body - so StarCore's own
+-- darkening and fire of single parts did not show on it. The hull is marked a wreck: the clients draw it dark, its
+-- lights go out, fires burn at spots over it and smoke after them (cl_fx.lua); the fire is heard from here for as
+-- long as it burns.
+SpaceGrid.WreckBurn = 45    -- seconds of fire (then smoke, cl_fx.lua)
+hook.Add("StarCore.Event", "SpaceGrid.Wreck", function(core, ev)
+	if ev ~= "destroyed" then return end
+	for _, e in ipairs(core.Parts or {}) do
+		if IsValid(e) and e.SpaceGridHull and not e.SGWreck then
+			e.SGWreck = true
+			e:SetNWBool("SGWreck", true)
+			e:SetNWFloat("SGWreckAt", CurTime())
+			local snd = CreateSound(e, "ambient/fire/fire_big_loop1.wav")
+			if snd then
+				snd:SetSoundLevel(85)
+				snd:PlayEx(0.8, 100)
+				e:CallOnRemove("SpaceGrid.WreckSound", function() snd:Stop() end)
+				timer.Simple(SpaceGrid.WreckBurn, function() if IsValid(e) then snd:FadeOut(4) end end)
 			end
 		end
 	end

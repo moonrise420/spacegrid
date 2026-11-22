@@ -39,9 +39,8 @@ end
 -- (rays do not see the plain box of an entity that rides on a ship: see spacegrid_field.lua)
 function ENT:TestCollision(start, delta, isbox, extents)
 	local mn, mx = self:GetCollisionBounds()
-	if isbox and extents then mn, mx = mn - extents, mx + extents end
-	local hit, normal, frac = util.IntersectRayWithOBB(start, delta, self:GetPos(), self:GetAngles(), mn, mx)
-	if hit then return { HitPos = hit, Fraction = frac, Normal = normal } end
+	return SpaceGrid.BoxHit(self, start, delta, isbox, extents, mn, mx)   -- (a touching player goes free: sh_core.lua)
+
 end
 
 if SERVER then

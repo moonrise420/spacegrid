@@ -1,11 +1,20 @@
--- SpaceGrid: how the menus sort the parts - by what a part is, not by its size class (2026-11-14, the owner: "good
--- and easy sorted, by group, in our Q menu"). Sections hold groups; a part goes into the first group one of whose
--- patterns its id fits (Lua patterns, tried in the order written here). A part no rule fits lands in "Other parts",
--- so nothing can vanish from the menus - and the test suite fails until the new part has got its place here.
--- 2026-11-15, the owner after his first build: in "Rooms" he looks for whole rooms, not single cells. So Rooms holds
--- the complete rooms and domes; the single room cells and furnished wall cells moved to "Advanced" at the end.
--- Titles are kept to one or two words (the owner, 2026-11-14: short and quick to read); the tree cuts long ones off.
+-- SpaceGrid: how the menus sort the parts - by what a part is, not by its size class. Sections hold groups; a part
+-- goes into the first group one of whose patterns its id fits (Lua patterns, tried in the order written here). A
+-- part no rule fits lands in "Other parts", so nothing can vanish from the menus - and the test suite fails until
+-- the new part has got its place here., the owner after his first build: in "Rooms" he looks for whole
+-- rooms, not single cells. So Rooms holds the complete rooms and domes; the single room cells and furnished wall
+-- cells moved to "Advanced" at the end. cockpits first, then rooms, then corridors - and the bridges of whole
+-- rooms with the cockpits. Titles are kept to one or two words (the owner,: short and quick to read); the tree cuts
+-- long ones off.
 SpaceGrid.Menu = {
+	{ key = "ships", title = "Ship shapes", groups = {
+		{ key = "fronts", title = "Cockpits", ids = { "_cockpit2?$", "_bridge$", "_nose$", "^r_gatebridge$" } },   -- (the bridges of whole rooms too: they fly the ship)
+		{ key = "engines", title = "Engines", ids = { "^%a+_engine2?$", "_tail$" }, no = { "^o_" } },
+	} },
+	{ key = "rooms", title = "Rooms", groups = {
+		{ key = "complete", title = "Complete rooms", ids = { "^r_gate" } },   -- (r_gate...: the Gate Halls)
+		{ key = "domes", title = "Domes", ids = { "^r_dome", "^m_hub$", "^dome%d" } },
+	} },
 	{ key = "corridors", title = "Corridors", groups = {
 		{ key = "corr_s", title = "Size S", ids = { "^s_straight", "^s_half$", "^s_corner$", "^s_tee$", "^s_cross$", "^s_ramp$", "^s_stairs$", "^s_lift", "^s_ladder" } },
 		{ key = "corr_m", title = "Size M", ids = { "^m_straight", "^m_half$", "^m_corner$", "^m_tee$", "^m_cross$", "^m_branch$", "^m_ramp$", "^m_stairs$" } },
@@ -20,18 +29,12 @@ SpaceGrid.Menu = {
 	{ key = "doors", title = "Doors", groups = {
 		{ key = "doors", title = "Doors", ids = { "^[sm]_door2?$", "^[sm]_hatch$", "^[sm]_airlock$", "^[sm]_dock$" } },
 		{ key = "gates", title = "Gates", ids = { "_gate$", "_shutter$", "_blast$", "_jaws$", "_auto$" } },
+		-- (a door that sits flat in the joint of two halls, its own group)
+		{ key = "flatdoors", title = "Flat hangar doors", ids = { "_shuttercap$", "_blastcap$", "_jawscap$", "_autocap$" } },
 	} },
 	{ key = "ends", title = "Ends", groups = {
-		{ key = "ends", title = "End caps", ids = { "_cap$" } },
+		{ key = "ends", title = "End caps", ids = { "_cap$", "_glasscap$", "_fieldcap$" } },
 		{ key = "adapters", title = "Adapters", ids = { "_adapter$", "_wall$" } },
-	} },
-	{ key = "ships", title = "Ship shapes", groups = {
-		{ key = "fronts", title = "Cockpits", ids = { "_cockpit2?$", "_bridge$", "_nose$" }, no = { "^r" } },
-		{ key = "engines", title = "Engines", ids = { "^%a+_engine2?$", "_tail$" }, no = { "^o_" } },
-	} },
-	{ key = "rooms", title = "Rooms", groups = {
-		{ key = "complete", title = "Complete rooms", ids = { "^r4?_bridge$" } },
-		{ key = "domes", title = "Domes", ids = { "^r_dome", "^m_hub$", "^dome%d" } },
 	} },
 	{ key = "outside", title = "Outside", groups = {
 		{ key = "o_wings", title = "Wings", ids = { "^o_wing", "^o_fin" } },
@@ -71,6 +74,12 @@ function SpaceGrid.MenuGroup(id)
 		end
 	end
 	return OTHER
+end
+
+-- is the part a door itself - a doorway, a gate, a plug (its door or field is the part), not a room that has doors
+function SpaceGrid.IsDoorPart(id)
+	local k = SpaceGrid.MenuGroup(id).key
+	return k == "doors" or k == "gates" or k == "ends"
 end
 
 -- (The titles here are the English ones; what a player reads comes from the language files: SpaceGrid.T("sec." ..
