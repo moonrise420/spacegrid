@@ -7,7 +7,7 @@ SpaceGrid is a building kit for spaceships and stations. Corridors, halls, hanga
 ## Install
 **Steam Workshop (easiest):** subscribe [there](https://steamcommunity.com/sharedfiles/filedetails/?id=3840679187).
 
-**By hand:** download `spacegrid-0.2.0.zip` from [Releases](../../releases/latest) and unpack it into
+**By hand:** download `spacegrid-0.2.1.zip` from [Releases](../../releases/latest) and unpack it into
 `garrysmod/addons/` (you get the folder `garrysmod/addons/spacegrid`).
 
 ## Bugs, problems and wishes
@@ -21,7 +21,7 @@ Please use [Issues](../../issues): pick *Bug report* or *Wish or idea*. On the S
 <img src=".github/images/04_command_deck.jpg" width="49%" alt="">
 <img src=".github/images/05_small_bridge.jpg" width="49%" alt="">
 <img src=".github/images/06_crew_room.jpg" width="49%" alt="">
-<img src=".github/images/07_window_corridor.jpg" width="49%" alt="">
+<img src=".github/images/07_sg_hangar_nebula.jpg" width="49%" alt="">
 <img src=".github/images/08_tool.jpg" width="49%" alt="">
 </p>
 
@@ -52,6 +52,9 @@ Please use [Issues](../../issues): pick *Bug report* or *Wish or idea*. On the S
 ### Flying (with StarCore)
 A ship with a cockpit, bridge or control desk gets its StarCore core by itself the moment you sit down at the helm. F switches to a camera behind the ship, the mouse wheel moves it; Ctrl still flies the ship down. Get up and the ship stays parked where it hovers. Engines and thrusters glow while it moves, landing legs fold in by themselves. With Ascension Gates the ship flies through a Stargate. A destroyed ship looks destroyed: burnt dark hull, fires, then smoke.
 
+### Settings
+Spawn menu, SpaceGrid tab > Settings: server settings for admins and your own.
+
 ### Wiremod
 Doors, gates, force fields, lamps, lights and the lift take Wire inputs; the navigation console gives position, speed, heading and more.
 
@@ -69,7 +72,7 @@ All Ascension Gates addons in one click: [Ascension Gates - Complete](https://st
 1. Open the **SpaceGrid** tab in the spawn menu and pick a part - you get the SpaceGrid Builder with it.
 2. Left click the ground: your ship starts there.
 3. Left click an open end of the ship: the next part snaps on. Right click turns it to the next opening.
-4. R on a part takes it off again. Undo works per part.
+4. R on a part takes it off again. Undo works per part, and also undoes joining and cutting ships.
 
 All texts in English, Czech, German, Spanish, Estonian, French, Croatian, Hungarian, Dutch, Russian, Swedish and Turkish; SpaceGrid follows the game's language.
 

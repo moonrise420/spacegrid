@@ -1,11 +1,11 @@
 -- SpaceGrid: how the menus sort the parts - by what a part is, not by its size class. Sections hold groups; a part
 -- goes into the first group one of whose patterns its id fits (Lua patterns, tried in the order written here). A
 -- part no rule fits lands in "Other parts", so nothing can vanish from the menus - and the test suite fails until
--- the new part has got its place here., the owner after his first build: in "Rooms" he looks for whole
--- rooms, not single cells. So Rooms holds the complete rooms and domes; the single room cells and furnished wall
--- cells moved to "Advanced" at the end. cockpits first, then rooms, then corridors - and the bridges of whole
--- rooms with the cockpits. Titles are kept to one or two words (the owner,: short and quick to read); the tree cuts
--- long ones off.
+-- the new part has got its place here., in "Rooms" he looks for whole rooms, not single cells. So Rooms
+-- holds the complete rooms and domes; the single room cells and furnished wall cells moved to "Advanced" at the end.
+-- cockpits first, then rooms, then corridors - and the bridges of whole rooms with the cockpits. Titles are
+-- kept to one or two words (short and quick to read); the tree cuts long ones off.
+--
 SpaceGrid.Menu = {
 	{ key = "ships", title = "Ship shapes", groups = {
 		{ key = "fronts", title = "Cockpits", ids = { "_cockpit2?$", "_bridge$", "_nose$", "^r_gatebridge$" } },   -- (the bridges of whole rooms too: they fly the ship)

@@ -197,8 +197,8 @@ end)
 
 -- Under water a ship does not push the water out: the game still counts a player in a sealed room as under water
 -- and drowns him after a few seconds - its own damage, apart from PowerGrid's suit air. A sealed room has air, so
--- that damage does not come (the owner,: "under water in our ships we have also oxygen?"; the same as AGP's ships
--- and PowerGrid's core ships do).
+-- that damage does not come (the same as AGP's ships and PowerGrid's core ships do).
+--
 hook.Add("EntityTakeDamage", "SpaceGrid.SealedNoDrown", function(ent, dmg)
 	if ent:IsPlayer() and dmg:IsDamageType(DMG_DROWN) and ent:WaterLevel() >= 3 and SpaceGrid.Sealed(ent) then return true end
 end)

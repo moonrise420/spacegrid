@@ -20,7 +20,7 @@ local function seat(ply)
 end
 
 -- sitting down: a pilot or gunner seat takes the remembered choice (gunners aim with the crosshair from behind the
--- ship - the owner), any other seat the seat's own view
+-- ship -), any other seat the seat's own view
 local function crew(v) return v:GetNWBool("SGPilot", false) or v:GetNWString("SGRole", "") == "gunner" end
 local last
 hook.Add("Think", "SpaceGrid.SeatView", function()

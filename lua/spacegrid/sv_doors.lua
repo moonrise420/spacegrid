@@ -283,7 +283,6 @@ function SpaceGrid.ThrowBack(self, e, w, h)
 	local side = rel:Dot(n)
 	if math.abs(side) > reach(n) + 2 then return end                                   -- it does not reach the sheet
 	if math.abs(rel:Dot(lf)) > w / 2 + reach(lf) or math.abs(rel:Dot(up)) > h / 2 + reach(up) then return end
-	local s = side >= 0 and 1 or -1
 	local hp = SpaceGrid.Body(hull)   -- (the keel moves the ship: sv_keel.lua)
 	local base = IsValid(hp) and hp:GetVelocityAtPoint(c) or vector_origin         -- the ship may be moving itself
 	-- (a loose thing the ship carries along - sv_keel.lua - has its speed in the ship already: with the ship's speed taken
@@ -291,11 +290,99 @@ function SpaceGrid.ThrowBack(self, e, w, h)
 	--
 	if SpaceGrid.CarriedBy and SpaceGrid.CarriedBy(e) == hull then base = vector_origin end
 	local v = phys:GetVelocity() - base
-	local vn = v:Dot(n) * s                                                            -- below zero: on its way in
+	-- the side it came from: against the way it moves (a fast one may have its middle past the sheet already - by its
+	-- middle it would be thrown on through); a slow one: where its middle is
+	local raw = v:Dot(n)
+	local s = math.abs(raw) > 30 and (raw > 0 and -1 or 1) or (side >= 0 and 1 or -1)
+	local vn = raw * s                                                                 -- below zero: on its way in
 	local want = math.max(-vn * 0.6, 60)
 	if vn >= want then return end
 	if SpaceGrid.KickOK then SpaceGrid.KickOK(e) end   -- (a push the ship's carry may keep: sv_keel.lua)
 	phys:SetVelocity(v + n * (s * (want - vn)) + base)
+	-- and out of the sheet: a thing that drives itself - a car, an AGP ship, a jumper - sets its own speed again
+	-- every tick and went on through a shut door (tracker: "closed doors and fields must stop props and ships");
+	-- put back to the sheet's face on its side, it meets a wall
+	local deep = reach(n) + 6 - side * s
+	if deep > 1 and deep < reach(n) * 2 + 12 then
+		local to = e:GetPos() + n * (s * deep)
+		if e:IsVehicle() then e:SetPos(to) else phys:SetPos(to) end
+	end
+	return true
+end
+
+-- A shut door or a field that holds is a wall for a whole SpaceGrid ship too. A ship is moved by its keel
+-- (sv_keel.lua), which touches only the map and other hulls - and a door is no piece of its hull's body, so a
+-- ship flew through another ship's shut hangar door. After each physics step sv_keel.lua asks here: each keel
+-- block that reaches into such a sheet of another ship is put back to the sheet's face, and its speed into the sheet
+-- - and the helm's wish for it - is taken away; along the sheet it slides on. (holds?,
+-- width, height, half the sheet's thickness: a field's box is 8 to each side, a door's sheet 6)
+local function holds(d)
+	if d.SpaceGridField then return d:GetOn() and not d:GetPassable(), d:GetWide(), d:GetTall(), 8 end
+	if d.SGTall then return not d:GetOpen(), d:GetWide(), d:SGTall(), 6 end
+end
+function SpaceGrid.SheetWall(hull, k, kp)
+	local boxes = k.SGBoxes
+	local mn, mx = hull.SGMins, hull.SGMaxs
+	if not boxes or not mn then return end
+	local v = kp:GetVelocity()
+	if v:LengthSqr() < 1 then return end
+	local kpos, kang = kp:GetPos(), kp:GetAngles()
+	local ax, ay, az = kang:Forward(), kang:Right(), kang:Up()
+	-- what lies round the ship this step (its box in the world, one tick's way wider)
+	local pad = v:Length() * engine.TickInterval() + 32
+	local c0 = LocalToWorld((mn + mx) / 2, angle_zero, kpos, kang)
+	local hx = (mx - mn) / 2
+	local ex = Vector(math.abs(ax.x) * hx.x + math.abs(ay.x) * hx.y + math.abs(az.x) * hx.z,
+		math.abs(ax.y) * hx.x + math.abs(ay.y) * hx.y + math.abs(az.y) * hx.z,
+		math.abs(ax.z) * hx.x + math.abs(ay.z) * hx.y + math.abs(az.z) * hx.z) + Vector(pad, pad, pad)
+	local hit
+	for _, d in ipairs(ents.FindInBox(c0 - ex, c0 + ex)) do
+		local other = d.SpaceGridDoor and d:GetParent()
+		if IsValid(other) and other ~= hull then
+			local on, w, h, THICK = holds(d)
+			if on then
+				local dp, da = d:GetPos(), d:GetAngles()
+				local n, lf, up = da:Forward(), -da:Right(), da:Up()
+				local ob = SpaceGrid.Body(other)
+				local vr = v - (IsValid(ob) and ob:GetVelocityAtPoint(dp) or vector_origin)
+				local raw = vr:Dot(n)
+				local best, bs = 0, nil
+				for _, bx in ipairs(boxes) do
+					local e = (bx[2] - bx[1]) / 2
+					local rel = LocalToWorld((bx[1] + bx[2]) / 2, angle_zero, kpos, kang) - dp
+					local function reach(dir) return math.abs(ax:Dot(dir)) * e.x + math.abs(ay:Dot(dir)) * e.y + math.abs(az:Dot(dir)) * e.z end
+					local function sheet(dir) return math.abs(n:Dot(dir)) * THICK + math.abs(lf:Dot(dir)) * w / 2 + math.abs(up:Dot(dir)) * h / 2 end
+					local dn, rn = rel:Dot(n), reach(n)
+					-- (overlap: on the sheet's three axes and on the block's own three)
+					if math.abs(dn) < rn + THICK and math.abs(rel:Dot(lf)) < w / 2 + reach(lf) and math.abs(rel:Dot(up)) < h / 2 + reach(up)
+						and math.abs(rel:Dot(ax)) < e.x + sheet(ax) and math.abs(rel:Dot(ay)) < e.y + sheet(ay) and math.abs(rel:Dot(az)) < e.z + sheet(az) then
+						local s = math.abs(raw) > 5 and (raw > 0 and -1 or 1) or (dn >= 0 and 1 or -1)
+						local deep = rn + THICK - dn * s
+						-- (a block mostly through already - the door shut on a ship in its opening: left alone)
+						if deep > best and deep < 256 then best, bs = deep, s end
+					end
+				end
+				if bs then
+					kpos = kpos + n * (bs * best)
+					if raw * bs < 0 then v = v - n * raw end
+					local core = hull.SGCore
+					local hv = IsValid(core) and core.Helm and core.Helm.vel
+					if hv and hv:Dot(n) * bs < 0 then core.Helm.vel = hv - n * hv:Dot(n) end
+					hit = true
+					if d.SpaceGridField and (d.SGHitAt or 0) < CurTime() then
+						d.SGHitAt = CurTime() + 0.3
+						SpaceGrid.Play(d, SpaceGrid.Sounds.field.hit, 75, 0.6)
+					end
+				end
+			end
+		end
+	end
+	if not hit then return end
+	k:SetPos(kpos)
+	kp:SetPos(kpos)
+	kp:SetVelocity(v)
+	k.SGLastV = v
+	k.SGSheetHits = (k.SGSheetHits or 0) + 1   -- (tests read it)
 	return true
 end
 

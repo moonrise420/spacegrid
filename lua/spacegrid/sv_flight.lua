@@ -8,7 +8,7 @@
 --  * a ship too complex to move (SpaceGrid.TooBig) stays frozen whatever asks to move it.
 -- Without StarCore the seats are plain seats; who sits down on a pilot seat is told once what flying needs.
 
-local cvAuto = CreateConVar("spacegrid_autocore", "1", FCVAR_ARCHIVE, "A SpaceGrid ship with a pilot seat gets a StarCore core by itself (needs the StarCore addon)")
+local cvAuto = CreateConVar("spacegrid_autocore", "1", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED), "A SpaceGrid ship with a pilot seat gets a StarCore core by itself (needs the StarCore addon)")
 
 local PILOT = { "_cockpit2?$", "_bridge$", "^r_gatebridge$", "^r2?_console$", "^r_captain$" }   -- (r_gatebridge: the Gate Hall's bridge, - its name does not end in _bridge)
 local pilotPart = {}
@@ -185,7 +185,7 @@ end
 
 -- The pilot gets up: the ship is parked where it hovers (StarCore's own parking: frozen until somebody steers
 -- again). A hovering ship is a moving body, and walking inside a moving body is where players got stuck
--- (the owner); a parked one is as firm as a ship that never flew.
+-- a parked one is as firm as a ship that never flew.
 hook.Add("PlayerLeaveVehicle", "SpaceGrid.Park", function(_, veh)
 	if not IsValid(veh) or not veh.SGPilot or not hasStarCore() then return end
 	local hull = veh:GetParent()

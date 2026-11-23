@@ -252,7 +252,7 @@ else
 
 	-- One model drawn at several places in one frame (the two leaves of a door): the game keeps a model's bones
 	-- for the frame, so without throwing them away each time every copy was drawn where the first one was set up
-	-- - both leaves of a door in one place (the owner,: an open door with a leaf still in the middle).
+	-- - both leaves of a door in one place (an open door with a leaf still in the middle).
 	local function drawAt(ent, pos, ang)
 		ent:SetRenderOrigin(pos); ent:SetRenderAngles(ang)
 		ent:InvalidateBoneCache(); ent:SetupBones(); ent:DrawModel()
@@ -347,9 +347,9 @@ else
 		else
 			-- two leaves: closed they meet in the middle; open each has slid its own width into the wall. What leaves
 			-- the doorway is cut off: beside some doorways there is no wall to hide a leaf (the stairs' foot in the
-			-- command deck - the owner,: "the door did not open completely"). (each leaf
-			-- is a model of its own: the door's own model drawn twice at two places came out as one leaf standing in
-			-- the middle of the open doorway in some doors - the owner)
+			-- command deck). (each leaf is a model of its own: the door's own model drawn
+			-- twice at two places came out as one leaf standing in the middle of the open doorway in some doors -)
+			--
 			local s = smooth(f)
 			local off = w / 4 + s * (w / 2 + 1)
 			local pos = self:GetPos()

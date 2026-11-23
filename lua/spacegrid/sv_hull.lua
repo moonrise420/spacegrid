@@ -66,9 +66,9 @@ local function giveWelds(hull, list)
 end
 
 -- A wall that comes where a player stands (a joint shut, an end made by taking a part away) held him in it (round 5 of
--- the night loop: standing in the hangar joint of two halls, the second hall taken away - stuck in the first one's
--- new hangar wall). So after a new body, a player standing in one of the ship's end walls is moved to the nearest free
--- spot beside it. Only players at the walls are looked at; noclip and seated players are left alone.
+-- the night loop: standing in the hangar joint of two halls, the second hall taken away - stuck in the first
+-- one's new hangar wall). So after a new body, a player standing in one of the ship's end walls is moved to the
+-- nearest free spot beside it. Only players at the walls are looked at; noclip and seated players are left alone.
 local function freePlayers(hull)
 	if not IsValid(hull) or not hull.SG then return end
 	local ends = SpaceGrid.StateEnds(hull.SG)   -- (fresh: the list of the last change is older than this body)
@@ -293,6 +293,7 @@ local function splitOff(hull, pids)
 	local wpos, wang = toWorld(hull, first.pos, first.ang)
 	local n = SpaceGrid.CreateHull(wpos, wang, hull.SGOwner)
 	if not IsValid(n) then return nil end
+	n.SGCutOf = { hull = hull, pos = Vector(first.pos), ang = Angle(first.ang) }   -- (where it sat: SpaceGrid.UndoCut)
 	local list = {}
 	for _, pid in ipairs(pids) do
 		local p = hull.SG.parts[pid]
@@ -412,6 +413,14 @@ function SpaceGrid.MergeHulls(a, pa, ia, b, pb, ib, twist)
 	if twist and twist % 4 ~= 0 then want:RotateAroundAxis(fb.dir, 90 * (twist % 4)) end
 	local ip, ia2 = WorldToLocal(vector_origin, angle_zero, fa.pos, fa.dir:AngleEx(fa.up))
 	local opos, oang = LocalToWorld(ip, ia2, fb.pos, want)
+	return SpaceGrid.MergeAt(a, b, opos, oang)
+end
+
+-- Join hull `a` into hull `b` with a's own frame at opos, oang in b's space (MergeHulls; undoing a cut). Returns true
+-- and the ids of a's parts in b, or false + why.
+function SpaceGrid.MergeAt(a, b, opos, oang)
+	if a == b then return false, "same hull" end
+	if b.SG.count + a.SG.count > SpaceGrid.MaxParts then return false, "hull is full" end
 	local moved, list = {}, {}
 	for _, p in pairs(a.SG.parts) do
 		local lp, la = LocalToWorld(p.pos, p.ang, opos, oang)
@@ -420,7 +429,11 @@ function SpaceGrid.MergeHulls(a, pa, ia, b, pb, ib, twist)
 		moved[#moved + 1] = { p.t, lp, la }
 		list[#list + 1] = p
 	end
-	for _, m in ipairs(moved) do SpaceGrid.StateAdd(b.SG, m[1], m[2], m[3]) end
+	local pids = {}
+	for _, m in ipairs(moved) do
+		local np = SpaceGrid.StateAdd(b.SG, m[1], m[2], m[3])
+		if np then pids[#pids + 1] = np.id end
+	end
 	b.SG.open = b.SG.open or {}
 	carryOpen(a.SG, list, function(v) return (LocalToWorld(v, angle_zero, opos, oang)) end, b.SG.open)
 	-- What is welded to a (the owner's crates, a lamp on them, a StarCore core, a Wire chip) goes along with a's parts
@@ -469,7 +482,39 @@ function SpaceGrid.MergeHulls(a, pa, ia, b, pb, ib, twist)
 			end
 		end)
 	end
-	return true
+	return true, pids
+end
+
+-- Undo, the way the game's own undo of a weld goes: undoing a join cuts the ships apart again where they are now
+-- (the parts that came with the join become a ship of their own); undoing a cut puts the cut-off pieces back onto
+-- the ship where they were - wherever they flew since - with what is welded to them. Each returns true, or false +
+-- why.
+function SpaceGrid.UndoJoin(hull, pids)
+	if not IsValid(hull) or not hull.SG then return false, "no such part" end
+	local alive = {}
+	for _, pid in ipairs(pids) do if hull.SG.parts[pid] then alive[#alive + 1] = pid end end
+	if #alive == 0 or #alive >= hull.SG.count then return false, "no joint here" end
+	local n = splitOff(hull, alive)
+	if not n then return false, "no joint here" end
+	-- (what was built since may now hang on nothing: a ship of its own, as when a part is taken off)
+	local islands = SpaceGrid.StateIslands(hull.SG)
+	for i = 2, #islands do splitOff(hull, islands[i]) end
+	SpaceGrid.Commit(hull)
+	return true, n
+end
+
+function SpaceGrid.UndoCut(hull, made)
+	if not IsValid(hull) or not hull.SG then return false, "no such part" end
+	local any, why = false, nil
+	for _, n in ipairs(made) do
+		local from = IsValid(n) and n.SG and n.SGCutOf
+		if from and from.hull == hull then
+			local ok, w = SpaceGrid.MergeAt(n, hull, from.pos, from.ang)
+			if ok then any = true else why = w end
+		end
+	end
+	if any then return true end
+	return false, why or "no such part"
 end
 
 -- the part of a hull at a world position (e.g. a trace's HitPos, pushed in a little along the hit normal)
@@ -576,11 +621,11 @@ hook.Add("CanTool", "SpaceGrid.Remover", function(ply, tr, mode, _, button)
 end)
 
 
--- Crossbow bolts. A bolt that hits a ship is taken away by the game at once, without a mark (the game treats the ship
--- as a body that takes damage: a thwack, gone) - in a map's wall a bolt sticks. So it looked as if it flew through.
--- Now a bolt that hits a ship, its glass, a door or a field of it sticks in it as in a wall: the crossbow's own bolt
--- model where it hit, riding on the ship, and the wall's sound. The damage it does is not changed.
---
+-- Crossbow bolts. A bolt that hits a ship is taken away by the game at once, without a mark (the game treats the
+-- ship as a body that takes damage: a thwack, gone) - in a map's wall a bolt sticks. So it looked as if it flew
+-- through. Now a bolt that hits a ship, its glass, a door or a field of it sticks in it as in a wall: the
+-- crossbow's own bolt model where it hit, riding on the ship, and the wall's sound. The damage it does is not
+-- changed.
 local BOLT_MODEL, BOLT_KEEP, BOLT_MAX = "models/crossbow_bolt.mdl", 20, 24
 local stuckBolts = {}
 hook.Add("EntityTakeDamage", "SpaceGrid.BoltSticks", function(ent, dmg)

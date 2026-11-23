@@ -297,12 +297,12 @@ function SpaceGrid.MergeBoxes(boxes)
 	return boxes
 end
 
--- Closed by default (the owner,: "so many parts missing walls ... it should be logic and easy to build"). Every
--- opening of a ship that nothing is joined to is shut by an end wall: the end cap of its size stands there by itself
--- - drawn, solid, airtight. Joining a part there takes it away. The build tool's Reload on a wall opens that end for
--- good (st.open, by the opening's place), Reload aimed at the opening shuts it again. No wall where a door of the
--- part already closes the way (the outer side of a doorway, an airlock, a gate: a way in), and none where another
--- part is in the way. Switch: spacegrid_closedends 0 (server) - ends stay open as they were before.
+-- Closed by default. Every opening of a ship that nothing is joined to is shut by an end wall: the end cap of its
+-- size stands there by itself - drawn, solid, airtight. Joining a part there takes it away. The build tool's Reload
+-- on a wall opens that end for good (st.open, by the opening's place), Reload aimed at the opening shuts it again.
+-- No wall where a door of the part already closes the way (the outer side of a doorway, an airlock, a gate: a way
+-- in), and none where another part is in the way. Switch: spacegrid_closedends 0 (server) - ends stay open as
+-- they were before.
 SpaceGrid.EndCap = { S = "s_cap", M = "m_cap", L = "l_cap", XL = "xl_cap", XXL = "xxl_cap", C = "c_cap", V = "s_cap", U = "s_cap" }
 local cvClosed = CreateConVar("spacegrid_closedends", "1", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED, FCVAR_NOTIFY), "SpaceGrid: every open end of a ship is shut by a wall by itself (1) or stays open (0)")
 SpaceGrid.PortKey = portKey

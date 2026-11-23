@@ -132,8 +132,8 @@ function SpaceGrid.ToolTarget(ply, tr, typ, own, twist)
 		miss = onto(hull, SpaceGrid.Placement(hull.SG, typ, own, twist, hull:WorldToLocal(tr.HitPos)))
 		if miss.lpos then return miss end
 		-- a plug aimed at the ship from outside with no free opening of its size near: the nearest joint of its size
-		-- (aimed at the seam of two joined halls it was refused - "no free port of that size here" - and went in only
-		-- when aimed from inside through the opening; the ghost shows where it goes)
+		-- (aimed at the seam of two joined halls it was refused - "no free port of that size here" - and went in
+		-- only when aimed from inside through the opening; the ghost shows where it goes)
 		if SpaceGrid.IsPlug(typ) and def.ports[1] then
 			local pt = SpaceGrid.PortTypes[def.ports[1].type]
 			local jkey, jp, ji = SpaceGrid.StateNearJoint(hull.SG, hull:WorldToLocal(tr.HitPos), (pt and pt.w or 256) + 400, def.ports[1].type)
@@ -175,11 +175,11 @@ end
 -- R through an end opened by hand shuts it again. The line may go on into the open, hitting no ship at all, so every
 -- ship is asked; the opening only has to come before what the line hits (`reach`). From outside a hangar that is its
 -- floor or far wall - the hangar must not be taken away then (the author's play test: only 250 units counted, a
--- hangar is wider, and only the nearest free opening on the line was asked - the far end behind it). R through a
--- joint (two parts joined at an opening) shuts it with the end wall of its size; R through a joint that has a wall
--- or plug already takes that out (a force-field plug lets the line through: the hall behind it was taken away). The
--- nearest opening on the line counts, an opened end or a joint (two Gate Halls joined at their hangars, R aimed
--- into the joint took the second hall away - "Shut it with a wall").
+-- hangar is wider, and only the nearest free opening on the line was asked - the far end behind it). R through
+-- a joint (two parts joined at an opening) shuts it with the end wall of its size; R through a joint that has a
+-- wall or plug already takes that out (a force-field plug lets the line through: the hall behind it was taken
+-- away). The nearest opening on the line counts, an opened end or a joint (two Gate Halls joined at their
+-- hangars, R aimed into the joint took the second hall away - "Shut it with a wall").
 local function shutEndOnLine(ply, start, normal, reach)
 	if CLIENT then return false end
 	local bh, bkey, bt, jh, jkey, jt, jtype
@@ -218,8 +218,8 @@ end
 -- Looking out of an open end into empty space the tool gun's line hits nothing, and then the tool gun calls none of
 -- the tool's buttons (sandbox gmod_tool: PrimaryAttack, SecondaryAttack and Reload stop when DoToolTrace finds
 -- nothing). Yet that is how a cockpit is set onto a front opening: the ghost shows out there, but a click did not
--- place it, a right click did not turn it, R did not shut the end (the author's play test). So the three buttons are
--- heard here too - only when the line hits nothing; else the tool gun calls them itself.
+-- place it, a right click did not turn it, R did not shut the end (the author's play test). So the three buttons
+-- are heard here too - only when the line hits nothing; else the tool gun calls them itself.
 if SERVER then
 	local BUTTONS = { [IN_ATTACK] = { "LeftClick", 1 }, [IN_ATTACK2] = { "RightClick", 2 }, [IN_RELOAD] = { "Reload", 3 } }
 	hook.Add("KeyPress", "SpaceGrid.ToolIntoSpace", function(ply, key)
@@ -267,6 +267,22 @@ local function joinClick(tool, ply, tr)
 	local ok, why = SpaceGrid.MergeHulls(pick.hull, pick.pid, pick.port, hull, part.id, port, tool:GetClientNumber("twist"))
 	if ok then SpaceGrid.Play(tr.HitPos, SpaceGrid.Sounds.tool.join) end
 	if ok then SpaceGrid.Say(ply, "say.joined") else SpaceGrid.SayWhy(ply, "say.cannot_join", why) end
+	if ok then
+		-- undo: the two ships apart again, where they are (sv_hull.lua UndoJoin)
+		local pids = why
+		undo.Create("SpaceGrid join")
+		undo.AddFunction(function()
+			local done, w = SpaceGrid.UndoJoin(hull, pids)
+			if not done then
+				if IsValid(ply) then SpaceGrid.SayWhy(ply, "say.cannot_undo", w) end
+				return false
+			end
+			if IsValid(ply) then SpaceGrid.Say(ply, "say.join_undone") end
+		end)
+		undo.SetPlayer(ply)
+		undo.SetCustomUndoText("Undone join")
+		undo.Finish()
+	end
 	return ok
 end
 
@@ -445,9 +461,9 @@ function TOOL:Reload(tr)
 			return true
 		end
 	end
-	-- R on a door or field that belongs to a room (a Gate Hall's own doors): not the whole room for it (the author's
-	-- play test - R on the hall's door took the hall away). A doorway, a gate, a plug: the door is the part, R
-	-- takes it as before.
+	-- R on a door or field that belongs to a room (a Gate Hall's own doors): not the whole room for it (the
+	-- author's play test - R on the hall's door took the hall away). A doorway, a gate, a plug: the door is the
+	-- part, R takes it as before.
 	if not ply:KeyDown(IN_USE) and IsValid(tr.Entity) and tr.Entity.SpaceGridDoor and not SpaceGrid.IsDoorPart(part.t) then
 		SpaceGrid.Say(ply, "say.door_of_room")
 		return false
@@ -470,6 +486,21 @@ function TOOL:Reload(tr)
 		end
 		SpaceGrid.Play(tr.HitPos, SpaceGrid.Sounds.tool.cut)
 		if #made > 0 then SpaceGrid.Say(ply, "say.cut", #made + 1) else SpaceGrid.Say(ply, "say.cut_still") end
+		if #made > 0 then
+			-- undo: the cut-off pieces back onto the ship, where they were (sv_hull.lua UndoCut)
+			undo.Create("SpaceGrid cut")
+			undo.AddFunction(function()
+				local done, w = SpaceGrid.UndoCut(hull, made)
+				if not done then
+					if IsValid(ply) then SpaceGrid.SayWhy(ply, "say.cannot_undo", w) end
+					return false
+				end
+				if IsValid(ply) then SpaceGrid.Say(ply, "say.cut_undone") end
+			end)
+			undo.SetPlayer(ply)
+			undo.SetCustomUndoText("Undone cut")
+			undo.Finish()
+		end
 		return true
 	end
 	SpaceGrid.Play(tr.HitPos, SpaceGrid.Sounds.tool.take)

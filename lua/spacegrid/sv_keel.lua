@@ -523,7 +523,7 @@ end
 -- after every physics step: each hull is put where its keel is. Moved by something else while the keel stood still
 -- (a tool, a paste, a jump): the keel goes there. Held in a player's physgun (small ships only): the keel follows.
 -- (the hull as a teleport: moved the normal way, the physics kept its contacts and took the jump for a fast floor -
--- its grip pulled loose crates along at the ship's speed into the walls; test ptcargo2)
+-- its grip pulled loose crates along at the ship's speed into the walls)
 local function place(e, phys, pos, ang)
 	e:SetPos(pos)
 	e:SetAngles(ang)
@@ -568,9 +568,9 @@ function SpaceGrid.CarriedBy(e) return carried[e] end
 local function carry(hull, k, oldPos, oldAng, newPos, newAng, vship)
 	local mn, mx = hull.SGMins, hull.SGMaxs
 	if not mn then return end
-	-- Never out through a wall (test ptcargo: a crate pressed into a corner in hard turns went out through the wall
-	-- at 2400 units a second). What the ship carried and has passed through its hull since the last step is put back
-	-- where it was.
+	-- Never out through a wall (a crate pressed into a corner in hard turns went out through the wall at 2400 units
+	-- a second). What the ship carried and has passed through its hull since the last step is put back where it was.
+	--
 	local tick = engine.TickCount()
 	for e, h in pairs(carried) do
 		-- (only while the hull still stands where this code last put it: moved by anything else - a paste, the
@@ -611,13 +611,13 @@ local function carry(hull, k, oldPos, oldAng, newPos, newAng, vship)
 			if lp.x > mn.x and lp.x < mx.x and lp.y > mn.y and lp.y < mx.y and lp.z > mn.z and lp.z < mx.z + 48 then
 				inside[e] = true
 				carried[e] = hull
-				-- Its own no-touch link with the keel (test ptcargo2: two crates in a Gate hall were pushed along by
-				-- the keel at the ship's speed, tick by tick, into the corners and out through the walls - the keel's
-				-- block is the whole hall, and the "keel touches only the map" rule did not hold for them). The
-				-- same link the welded riders have; made anew for a new keel body, taken off when it leaves.
+				-- Its own no-touch link with the keel (two crates in a Gate hall were pushed along by the keel at the
+				-- ship's speed, tick by tick, into the corners and out through the walls - the keel's block is the
+				-- whole hall, and the "keel touches only the map" rule did not hold for them). The same link the
+				-- welded riders have; made anew for a new keel body, taken off when it leaves.
 				local kp = k:GetPhysicsObject()
-				-- (the owner's console: "Tried to use a NULL physics object!" here - the old keel body was gone after a
-				-- rebuild, and comparing with a removed body is an error: looked at with IsValid first)
+				-- (here - the old keel body was gone after a rebuild, and comparing with a removed body is an error: looked
+				-- at with IsValid first)
 				local of = e.SGCarryPairOf
 				if not (isPair(e.SGCarryPair) and of and IsValid(of) and of == kp) then
 					if isPair(e.SGCarryPair) then e.SGCarryPair:Remove() end
@@ -694,12 +694,12 @@ local function carry(hull, k, oldPos, oldAng, newPos, newAng, vship)
 	end
 end
 
--- A hit never makes a ship faster (the author's play test: "everywhere i fly fast into it is catapulting the ship high
--- speed away", faster with every bounce off the map's edge; sitting down in a ship built on uneven ground shot it
--- into the air). The keel's blocks are boxes round the parts; pushed into the map (flying into a wall, Ctrl held on
--- the ground, a block corner in a step of the ground when it is let go) the physics pushed them out at any speed.
--- So after each step the keel's speed may grow only as much as flying or falling can make it grow in a step; more
--- than that is cut back (the way it goes stays). Not while held with the physgun or when the ship is destroyed.
+-- A hit never makes a ship faster (faster with every bounce off the map's edge; sitting down in a ship built on uneven
+-- ground shot it into the air). The keel's blocks are boxes round the parts; pushed into the map (flying into a
+-- wall, Ctrl held on the ground, a block corner in a step of the ground when it is let go) the physics pushed them
+-- out at any speed. So after each step the keel's speed may grow only as much as flying or falling can make it
+-- grow in a step; more than that is cut back (the way it goes stays). Not while held with the physgun or when the
+-- ship is destroyed.
 local GROW_SPEED = 4000   -- units per second, per second (StarCore's acceleration, boost and gravity stay far below)
 local GROW_SPIN = 720     -- degrees per second, per second
 local function speedGuard(hull, k, kp)
@@ -765,6 +765,8 @@ hook.Add("Tick", "SpaceGrid.KeelFollow", function()
 			end
 			if IsValid(kp) then
 				speedGuard(hull, k, kp)
+				-- (another ship's shut door or field is a wall for this ship: sv_doors.lua)
+				if kp:IsMotionEnabled() and not hull.SGHeldBy and SpaceGrid.SheetWall then SpaceGrid.SheetWall(hull, k, kp) end
 				-- A frozen keel touches nothing (things spawned inside a ship fell through its floor). The game asks the
 				-- "keel touches only the map and other ships" rule (ShouldCollide, below) only about moving bodies: a
 				-- parked ship's frozen keel - boxes round whole rooms - pushed a crate spawned in a room out through the
@@ -827,7 +829,50 @@ hook.Add("ShouldCollide", "SpaceGrid.Keel", function(a, b)
 	if o.SpaceGridKeel then return false end
 	if o.SpaceGridHull then return o ~= k.SGHull end
 	if string.StartWith(o:GetClass(), "func_") then return true end
+	-- a Stargate's ramp and its DHD stand like the map: the ship meets them. Not one that rides in this ship (welded on,
+	-- parented). (Not the gate's ring: the keel's blocks are coarser than the ship one sees, so a ship could be stopped
+	-- at an opening it fits through.)
+	if (o.IsRamp or o.IsDHD) and o.SGRiderOf ~= k.SGHull and not IsValid(o:GetParent()) then return true end
 	return false
+end)
+
+-- (through a Stargate "at the target put under the map") once a ship is out of a gate, a keel block that came out in
+-- the ground is lifted out of it: the body would else be pushed further down, through the map.
+local function liftOutOfGround(hull, k)
+	local need = 0
+	for _, bx in ipairs(k.SGBoxes or {}) do
+		local a, b = bx[1], bx[2]
+		local tall = b.z - a.z
+		for _, xy in ipairs({ { a.x, a.y }, { b.x, a.y }, { a.x, b.y }, { b.x, b.y }, { (a.x + b.x) / 2, (a.y + b.y) / 2 } }) do
+			local p = hull:LocalToWorld(Vector(xy[1], xy[2], a.z))
+			local tr = util.TraceLine({ start = p + Vector(0, 0, tall), endpos = p, mask = MASK_SOLID_BRUSHONLY })
+			if tr.Hit and not tr.StartSolid then need = math.max(need, tr.HitPos.z - p.z) end
+		end
+	end
+	if need > 0.5 then
+		SpaceGrid.TeleportShip(hull, hull:GetPos() + Vector(0, 0, need + 4), hull:GetAngles())
+		k.SGLifted = need   -- (tests read it)
+	end
+end
+hook.Add("StarGate.Teleport", "SpaceGrid.GateOut", function(e)
+	local hull = IsValid(e) and (e.SpaceGridHull and e or e.SGHull)
+	if IsValid(hull) and hull.SpaceGridHull then hull.SGGateOut = CurTime() + 15 end
+end)
+hook.Add("Tick", "SpaceGrid.GateOut", function()
+	for hull in pairs(keeled) do
+		local t = IsValid(hull) and hull.SGGateOut
+		local k = t and hull.SGKeel
+		if t and IsValid(k) and not (k.AGPRideWith or hull.AGPRideWith) and hull:GetColor().a > 0 then
+			-- (through: out of the wormhole ride and seen again - or the ride never started)
+			if hull.SGGateIn == nil or (hull:GetPos():DistToSqr(hull.SGGateIn) > 250000) then
+				hull.SGGateOut, hull.SGGateIn = nil, nil
+				liftOutOfGround(hull, k)
+			end
+		elseif t and IsValid(k) and hull.SGGateIn == nil then
+			hull.SGGateIn = hull:GetPos()
+		end
+		if t and CurTime() > t then hull.SGGateOut, hull.SGGateIn = nil, nil end
+	end
 end)
 
 -- the keel takes no damage: an area hit (blast, a gate's kawoosh) finds the hull round it too (spacegrid_keel.lua)

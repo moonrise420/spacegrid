@@ -78,8 +78,8 @@ if SERVER then
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
--- The screen: 10 dots to a unit, so 840 x 440 dots. Large letters on a plain dark ground (the owner,:
--- "navigation console can't be read good" - the first one wrote small numbers over the model's busy screen picture).
+-- The screen: 10 dots to a unit, so 840 x 440 dots. Large letters on a plain dark ground (the first one wrote
+-- small numbers over the model's busy screen picture).
 surface.CreateFont("SpaceGridNavS", { font = "Roboto", size = 38, weight = 600, extended = true })
 surface.CreateFont("SpaceGridNavR", { font = "Roboto", size = 48, weight = 700, extended = true })
 surface.CreateFont("SpaceGridNavM", { font = "Roboto", size = 60, weight = 700, extended = true })

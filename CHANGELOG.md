@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1
+**New**
+- Settings page in the spawn menu's SpaceGrid tab (Settings > SpaceGrid): the server settings "Open ends shut by themselves" and "Ships with a pilot seat get a StarCore core" (only admins change them, everybody sees them) and your own view, glow, machine sounds, room light and fast drawing settings. Texts in all 12 languages.
+- Undo for joining and cutting: undo after joining takes the two ships apart again where they are; undo after a cut puts the cut-off pieces back onto the ship where they were - wherever they flew since - with what is welded to them.
+
+**Fixed**
+- A shut door, gate or holding force field is now a wall for other SpaceGrid ships too: a ship flying into another ship's shut hangar gate stops at it instead of passing through. Things that drive themselves (cars, Ascension Gates ships, props pushed every tick) are put back out of the sheet, so they no longer push through either.
+- A ship stops at a Stargate's ramp or DHD instead of flying through it (not at one welded on the ship). A ship that comes out of a Stargate with its bottom in the ground is lifted out of it.
+
 ## 0.2.0
 **New**
 - Gate halls and a Gate hall bridge with room for a Stargate. With Ascension Gates a ship flies through a Stargate.

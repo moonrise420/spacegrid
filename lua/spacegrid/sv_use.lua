@@ -1,8 +1,8 @@
 -- SpaceGrid: the Use key with the tool gun in hand. The build tool uses Use as a modifier (Use + click), so a held
 -- Use belongs to the tool: seats, landing legs, lifts, doors, lamps and switches ignore it. But a player who builds
--- has the tool gun in hand most of the time, and "E does nothing on my landing legs" (the owner) is no answer. So:
--- a short tap of Use - pressed and let go again without a click in between - is a plain Use on what he looks at,
--- tool gun or not.
+-- has the tool gun in hand most of the time, and "E does nothing on my landing legs" is no answer. So: a short tap
+-- of Use - pressed and let go again without a click in between - is a plain Use on what he looks at, tool gun or
+-- not.
 local TAP = 0.35      -- seconds between press and release that still count as a tap
 local TAP_DOOR = 1.5  -- (on a door, a gate or a switch)
 local REACH = 220
