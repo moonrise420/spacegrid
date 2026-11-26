@@ -77,7 +77,7 @@ All Ascension Gates addons in one click: [Ascension Gates - Complete](https://st
 All texts in English, Czech, German, Spanish, Estonian, French, Croatian, Hungarian, Dutch, Russian, Swedish and Turkish; SpaceGrid follows the game's language.
 
 ## Early version
-This is version 0.2. It builds, flies and holds air, and a lot more is planned: more parts, more rooms, more ways to join them. Tell me what you want to build and what's missing.
+This is version 0.3. It builds, flies and holds air, and a lot more is planned: more parts, more rooms, more ways to join them. Tell me what you want to build and what's missing.
 
 ## Privacy
 SpaceGrid collects nothing and never goes online.
