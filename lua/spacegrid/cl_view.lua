@@ -11,7 +11,10 @@ local zoom = 1          -- the third-person camera's distance, as a factor
 local third = false     -- the view of the seat one sits in right now
 local cvFree            -- StarCore's free flight (its client setting; nil without StarCore)
 local cvMouse           -- StarCore's mouse steering
-timer.Simple(0, function() cvFree, cvMouse = GetConVar("starcore_free_flight"), GetConVar("starcore_mouse_steer") end)
+local cvDirect          -- StarCore's free flight with the 1:1 mouse
+timer.Simple(0, function() cvFree, cvMouse, cvDirect = GetConVar("starcore_free_flight"), GetConVar("starcore_mouse_steer"), GetConVar("starcore_direct_flight") end)
+local function mouseSteers() return (cvMouse and cvMouse:GetBool() or cvDirect and cvDirect:GetBool()) == true end
+local eyeSeat, eyeHull, eyeAt, eyeN   -- (the eyes' spot in the ship, from the seat)
 local lookSeat, lookOff = nil, Angle(0, 0, 0)   -- (the pilot's own look away from the nose, set only by looking around)
 
 local function seat(ply)
@@ -54,7 +57,27 @@ hook.Add("CalcView", "SpaceGrid.SeatView", function(ply, origin, angles, fov)
 		-- the seat's eyes; the horizon is the ship's deck, nothing else tilts it
 		local a = hull:WorldToLocalAngles(angles)
 		a.r = 0
-		view.origin = origin
+		-- (in the cockpit "its really wobbly inside up and down like a schaukel") The mouse that steers turned the
+		-- pilot's head as well, and the head came back while the ship tilted: the pilot looks along the nose, plus what
+		-- he chose himself by looking around. The eyes sit on their spot in the ship, taken once: the game's own spot
+		-- comes a moment late in a moving ship.
+		if v:GetNWBool("SGPilot", false) then
+			if lookSeat ~= v then lookSeat, lookOff = v, Angle(0, 0, 0) end
+			local id = v:LookupAttachment("vehicle_driver_eyes")
+			local at = id and id > 0 and v:GetAttachment(id)
+			local nose = hull:WorldToLocalAngles(at and at.Ang or v:GetAngles())
+			local core = v:GetNWEntity("starcore")
+			if IsValid(core) and core:GetNWBool("starcore_hover") and mouseSteers() and not (StarCore and StarCore.Looking) then
+				a = Angle(math.Clamp(math.NormalizeAngle(nose.p) + lookOff.p, -89, 89), nose.y + lookOff.y, 0)
+			else
+				lookOff = Angle(math.Clamp(math.AngleDifference(a.p, nose.p), -89, 89), math.AngleDifference(a.y, nose.y), 0)
+			end
+		end
+		if eyeSeat ~= v or eyeHull ~= hull then eyeSeat, eyeHull, eyeAt, eyeN = v, hull, nil, 0 end
+		local now = hull:WorldToLocal(origin)
+		eyeN = eyeN + 1
+		if not eyeAt or eyeN < 30 and now:DistToSqr(eyeAt) < 400 then eyeAt = eyeAt and LerpVector(0.2, eyeAt, now) or now end
+		view.origin = hull:LocalToWorld(eyeAt)
 		view.angles = hull:LocalToWorldAngles(a)
 		return view
 	end
@@ -81,7 +104,7 @@ hook.Add("CalcView", "SpaceGrid.SeatView", function(ply, origin, angles, fov)
 		local nose = (at and at.Ang or v:GetAngles()):Forward():Angle()   -- (the nose's pitch and heading, no roll)
 		nose.p = math.NormalizeAngle(nose.p)
 		local core = v:GetNWEntity("starcore")
-		local steering = IsValid(core) and core:GetNWBool("starcore_hover") and cvMouse and cvMouse:GetBool()
+		local steering = IsValid(core) and core:GetNWBool("starcore_hover") and mouseSteers()
 			and not (StarCore and StarCore.Looking)
 		if steering then
 			a = Angle(math.Clamp(nose.p + lookOff.p, -89, 89), nose.y + lookOff.y, 0)
@@ -96,6 +119,16 @@ hook.Add("CalcView", "SpaceGrid.SeatView", function(ply, origin, angles, fov)
 	-- not through the ground or a wall of the world (the ship itself and what rides on it do not count)
 	local tr = util.TraceLine({ start = mid, endpos = want, mask = MASK_SOLID_BRUSHONLY })
 	view.origin = tr.Hit and (tr.HitPos + tr.HitNormal * 12) or want
+	-- (out of a gate: the camera behind the ship stays before the gate too - it looked at the ship through the back of the
+	-- horizon., film of ptinside2)
+	for _, eh in ipairs(ents.FindByClass("event_horizon")) do
+		local n, at = eh:GetForward(), eh:GetPos()
+		local a, b = (mid - at):Dot(n), (view.origin - at):Dot(n)
+		if a > 30 and b < 20 then
+			local hit = mid + (view.origin - mid) * ((a - 20) / (a - b))
+			if hit:DistToSqr(at) < (eh:BoundingRadius() * 1.2) ^ 2 then view.origin = hit end
+		end
+	end
 	view.angles = a
 	view.drawviewer = true
 	return view

@@ -93,6 +93,7 @@ function SpaceGrid.SyncCore(hull)
 	if not IsValid(hull) or not hasStarCore() then return end
 	local core = SpaceGrid.CoreOf(hull)
 	if IsValid(core) then
+		core:SetNWEntity("starcore_walk_on", hull)
 		if core.SGAuto then giveSeats(hull, core) end
 		core.NextScan = 0     -- (it looks at the changed ship again right away)
 	end
@@ -122,6 +123,7 @@ function SpaceGrid.MakeCore(hull)
 	constraint.Weld(core, IsValid(hull.SGKeel) and hull.SGKeel or hull, 0, 0, 0, true, false)   -- (the keel moves the ship: sv_keel.lua)
 	hull:DeleteOnRemove(core)
 	hull.SGCore = core
+	core:SetNWEntity("starcore_walk_on", hull)   -- (who walks in the ship goes with the hull: StarCore sh_walk.lua)
 	-- (damaged to 78 %, sat down again - 100 %) however the core goes (Replicators ate it, a blast, a rebuild), its damage
 	-- stays with the ship for the next core
 	core:CallOnRemove("SpaceGrid.KeepHull", function(c)

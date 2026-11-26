@@ -520,7 +520,8 @@ if CLIENT then
 	hook.Add("Think", "SpaceGrid.Ghost", function()
 		local ply = LocalPlayer()
 		local wep = IsValid(ply) and ply:GetActiveWeapon()
-		if not IsValid(wep) or wep:GetClass() ~= "gmod_tool" or GetConVarString("gmod_toolmode") ~= "spacegrid_build" then drop() return end
+		-- (in a seat the tool cannot be used: a ghost stayed there and shook along in flight -, the author's play test)
+		if not IsValid(wep) or ply:InVehicle() or wep:GetClass() ~= "gmod_tool" or GetConVarString("gmod_toolmode") ~= "spacegrid_build" then drop() return end
 		local typ = GetConVarString("spacegrid_build_part")
 		local def = SpaceGrid.Parts[typ]
 		local t = def and SpaceGrid.ToolTarget(ply, ply:GetEyeTrace(), typ, GetConVarNumber("spacegrid_build_port"), GetConVarNumber("spacegrid_build_twist"))

@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.3.0
+**New**
+- A ship can hit people and NPCs. Slow it does nothing, at around 300 units a second it hurts, fast it kills.
+
+**Ships and the world**
+- Ships hit everything solid: frozen and welded props, buildings, ramps, DHDs, big moving things, other ships, and shields that are up. They used to only bump into the map and other ships.
+- Loose barrels and crates in the way get knocked aside.
+- A Stargate's ring never catches a ship, and a ship comes out of a gate fully in front of it, over the ramp.
+
+**Everything on board**
+- Frozen props, things built from several parts, cars, ragdolls, NPCs and smaller ships parked inside stay where they are while the ship flies. Before, the walls went right through them.
+- Nothing aboard shakes anymore, on the lift either. NPCs and cars stand still in turns and climbs.
+- A smaller ship standing in a hall doesn't push its carrier away, and rides along through gates and hyperspace.
+- A hoverball keeps its height, turrets stay on the deck, and people or NPCs who die aboard stay in the ship. If you die aboard, your body stays in the ship too.
+- Ragdolls don't stick a limb through the deck or a wall anymore.
+- A smaller ship parked on the roof of a flying carrier rides along on its spot.
+- If a ship's hull is destroyed (by a kawoosh or the remover), the things welded in it fall down instead of hanging in the air.
+- Welded things come along on a hyperspace jump.
+- NPCs beamed or dropped into a flying hall are aboard right away and land where they should.
+
+**People aboard**
+- You stand upright in a flying ship. Before, you leaned with the ship's speed, up to 45 degrees in flight.
+- Other people aboard don't jump around when drawn anymore, also in boost.
+
+**Performance**
+- Things lying still in a flying ship cost almost nothing. A hall full of stuff went from 46 to 180 fps.
+
+**Also**
+- If a ship gets cut in two in flight, the front half keeps its speed, and nobody gets run over by it.
+
+**Gates**
+- Loose cargo and the people standing in a ship go through a Stargate with it. Before, crates fell out under the ship and people were left behind.
+- If a ship gets lost in a gate (closed iris, gate shuts on the way), everything in it is lost with it.
+
+**Other**
+- The pilot stays in the seat whatever the ship flies into, and the view from the seat follows the nose (ALT to look around).
+- The physgun can't pull welded parts around on their weld anymore.
+- The build tool's preview disappears while you sit.
+
 ## 0.2.1
 **New**
 - Settings page in the spawn menu's SpaceGrid tab (Settings > SpaceGrid): the server settings "Open ends shut by themselves" and "Ships with a pilot seat get a StarCore core" (only admins change them, everybody sees them) and your own view, glow, machine sounds, room light and fast drawing settings. Texts in all 12 languages.

@@ -466,6 +466,7 @@ function SpaceGrid.MergeAt(a, b, opos, oang)
 			end
 		end
 	end
+	a.SGMergedInto = b   -- (sv_keel.lua: its welded things are not let go, they go over to b)
 	a:Remove()
 	SpaceGrid.Commit(b)
 	if b.SGRebuildQueued then

@@ -104,13 +104,26 @@ function ENT:TriggerInput(name, value)
 end
 
 -- the players it carries (who stands on it) and whether somebody stands in its way below
+-- (who stands still on it keeps their spot on it until the ride is over: on a server with lag a passenger slid off it in a
+-- turning ship and it went up without them - deckflight)
+local KEYS = bit.bor(IN_FORWARD, IN_BACK, IN_MOVELEFT, IN_MOVERIGHT, IN_JUMP)
 local function riders(self)
 	local on, under = {}, false
+	local spots = self.SGSpots or {}
+	self.SGSpots = spots
 	for _, ply in ipairs(player.GetAll()) do
+		if not (ply:Alive() and not ply:InVehicle() and ply:GetMoveType() == MOVETYPE_WALK and ply:KeyDown(KEYS) == false) then spots[ply] = nil end
 		if ply:Alive() and not ply:InVehicle() then
 			local lp = self:WorldToLocal(ply:GetPos())
-			if math.abs(lp.x) < HALF + 6 and math.abs(lp.y) < HALF + 6 then
-				if lp.z > -3 and lp.z < 26 then on[#on + 1] = ply
+			local sp = spots[ply]
+			if sp and (sp.t < CurTime() - 0.3 or lp:DistToSqr(sp.lp) > 40 * 40) then spots[ply] = nil sp = nil end
+			if sp then
+				sp.t = CurTime()
+				on[#on + 1] = ply
+			elseif math.abs(lp.x) < HALF + 6 and math.abs(lp.y) < HALF + 6 then
+				if lp.z > -3 and lp.z < 26 then
+					on[#on + 1] = ply
+					if lp.z < 6 and ply:GetMoveType() == MOVETYPE_WALK and not ply:KeyDown(KEYS) then spots[ply] = { lp = lp, t = CurTime() } end
 				elseif lp.z <= -3 and lp.z > -THICK - 90 then under = true end
 			end
 		end
@@ -118,8 +131,35 @@ local function riders(self)
 	return on, under
 end
 
+-- (who stood on it a moment ago and is under it now fell through it: on a server with lag a step of the ship is missed now and
+-- then, the platform is 6 thick)
+local function noFall(self)
+	local last = self.SGLast or {}
+	self.SGLast = last
+	for _, ply in ipairs(player.GetAll()) do
+		local lp = ply:Alive() and not ply:InVehicle() and ply:GetMoveType() == MOVETYPE_WALK and self:WorldToLocal(ply:GetPos())
+		if lp and math.abs(lp.x) < HALF + 6 and math.abs(lp.y) < HALF + 6 and lp.z > -THICK - 72 and lp.z < 12 then
+			if lp.z > -3 then last[ply] = CurTime()
+			elseif last[ply] and CurTime() - last[ply] < 0.25 then
+				local at = self:LocalToWorld(Vector(lp.x, lp.y, 0.2))
+				ply:SetLocalPos(at)
+				ply.SGLifted = engine.TickCount()   -- (StarCore's walking leaves this step in: sh_walk.lua)
+				local shadow = ply:GetPhysicsObject()
+				if IsValid(shadow) then shadow:SetPos(at, true) end
+				local v = ply:GetVelocity()
+				ply:SetLocalVelocity(Vector(v.x, v.y, 0))
+				last[ply] = CurTime()
+				self.SGCaught = (self.SGCaught or 0) + 1   -- (tests read it)
+			end
+		else
+			last[ply] = nil
+		end
+	end
+end
+
 function ENT:Think()
 	local hull = self:GetParent()
+	if IsValid(hull) and IsValid(hull.SGKeel) and hull.SGKeel:GetVelocity():LengthSqr() > 100 * 100 then noFall(self) end
 	local want = (self.SGGoal or 0) * DECK
 	local at = self.SGAt or 0
 	if IsValid(hull) and self.SGHome and math.abs(want - at) > 0.01 then
@@ -133,7 +173,14 @@ function ENT:Think()
 			self:SetLocalPos(self.SGHome + self.SGUp * at)
 			local move = hull:LocalToWorld(self.SGUp * d) - hull:GetPos()
 			for _, ply in ipairs(on) do
-				ply:SetPos(ply:GetPos() + move)
+				-- (SetPos put him there in jumps, the passenger's view shook while the ship flew -; measured 3 units a frame, test
+				-- deckflight. SetLocalPos leaves the game's smoothing on.)
+				local sp = self.SGSpots[ply]
+				local at = sp and self:LocalToWorld(sp.lp) or ply:GetPos() + move
+				ply:SetLocalPos(at)
+				ply.SGLifted = engine.TickCount()   -- (StarCore's walking leaves this step in: sh_walk.lua)
+				local shadow = ply:GetPhysicsObject()
+				if IsValid(shadow) then shadow:SetPos(at, true) end
 				local v = ply:GetVelocity()
 				ply:SetLocalVelocity(Vector(v.x, v.y, 0))   -- (no falling speed builds up while he is carried)
 			end

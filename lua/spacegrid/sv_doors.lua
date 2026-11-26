@@ -226,6 +226,32 @@ function SpaceGrid.UseSeat(hull, ply)
 	return true
 end
 
+-- Who sits stays in the seat (flown through the Dakara building, the pilot sat outside, left of the ship: 180 to 440 units
+-- off his seat, on the server, until he got up). A seated player is an entity of his own that the game moves out of a
+-- solid thing it finds itself in - the seat and the ship do not. His spot on the seat is taken once he sits, and he is
+-- put back there.
+local seatSpots = setmetatable({}, { __mode = "k" })   -- player -> { seat, spot, since }
+hook.Add("PlayerEnteredVehicle", "SpaceGrid.SeatSpot", function(ply, veh)
+	if IsValid(veh) and veh.SpaceGridSeat then seatSpots[ply] = { seat = veh, at = CurTime() + 0.25 } end
+end)
+hook.Add("PlayerLeaveVehicle", "SpaceGrid.SeatSpot", function(ply) seatSpots[ply] = nil end)
+hook.Add("Tick", "SpaceGrid.SeatSpot", function()
+	for ply, st in pairs(seatSpots) do
+		if not (IsValid(ply) and IsValid(st.seat)) or ply:GetVehicle() ~= st.seat then
+			seatSpots[ply] = nil
+		elseif ply:GetParent() == st.seat then
+			local lp = ply:GetLocalPos()
+			if not st.spot then
+				-- (as he sits at first; far off already - sat down inside a wall: on the seat)
+				if CurTime() >= st.at then st.spot = lp:LengthSqr() < 60 * 60 and lp or Vector(0, 0, 0) end
+			elseif lp:DistToSqr(st.spot) > 9 then
+				ply:SetLocalPos(st.spot)
+				st.seat.SGSeatBack = (st.seat.SGSeatBack or 0) + 1   -- (tests read it)
+			end
+		end
+	end
+end)
+
 hook.Add("PlayerLeaveVehicle", "SpaceGrid.Seat", function(ply, veh)
 	if not IsValid(veh) or not veh.SpaceGridSeat then return end
 	local hull = veh:GetParent()
@@ -264,6 +290,12 @@ function SpaceGrid.ThrowBack(self, e, w, h)
 	if not IsValid(e) or e:IsPlayer() or e:IsNPC() or e.SpaceGridDoor then return end
 	local hull = self:GetParent()
 	if not IsValid(hull) or e == hull or e:GetParent() == hull then return end
+	-- its own ship's body, what is welded on it and its core are never thrown back. (asked by its links alone, in the
+	-- moment a ship's body was made anew - something welded on - it had none, and the ship's own shut doors threw the
+	-- ship across the map.)
+	if e.SGHull == hull or e.SGRiderOf == hull or e == hull.SGCore then return end
+	local core = hull.SGCore
+	if IsValid(core) and StarCore and StarCore.PartCore and StarCore.PartCore[e] == core then return end
 	local phys = e:GetPhysicsObject()
 	if not IsValid(phys) or not phys:IsMotionEnabled() then return end
 	local now = CurTime()
@@ -308,6 +340,87 @@ function SpaceGrid.ThrowBack(self, e, w, h)
 		if e:IsVehicle() then e:SetPos(to) else phys:SetPos(to) end
 	end
 	return true
+end
+
+-- Another ship's (or a base's) shield stops a ship (AGP's bubbles stop what touches them by pushing its body, and a
+-- ship's hull is a frozen one that its keel carries - the keel ignored them). A round bubble, or a ship's
+-- longish one: the ship is put back to it and loses its speed into it, and the shield takes the hit. Passed: its own ship's,
+-- one that is down, a containment field, one that knows the ship (a shield identifier), and one round the ship when it came on.
+local bubbles = {}
+timer.Create("SpaceGrid.Bubbles", 0.25, 0, function()
+	bubbles = {}
+	for _, cls in ipairs({ "shield", "ship_shield" }) do for _, b in ipairs(ents.FindByClass(cls)) do bubbles[#bubbles + 1] = b end end
+end)
+local function bubbleHolds(b, hull, k)
+	local gen = b.Parent
+	if not IsValid(gen) or gen.Depleted or (tonumber(gen.Strength) or 0) <= 0 or gen.Containment then return false end
+	local nc = b.nocollide
+	if istable(nc) and (nc[hull] or nc[k] or (IsValid(hull.SGCore) and nc[hull.SGCore])) then return false end
+	if hull.IgnoreShield then return false end
+	if gen.SGRiderOf == hull or gen:GetParent() == hull then return false end
+	local core = hull.SGCore
+	if IsValid(core) and StarCore and StarCore.PartCore and StarCore.PartCore[gen] == core then return false end
+	return true
+end
+function SpaceGrid.ShieldWall(hull, k, kp)
+	local boxes, mn, mx = k.SGBoxes, hull.SGMins, hull.SGMaxs
+	if #bubbles == 0 or not boxes or not mn then return end
+	local kpos, kang, v = kp:GetPos(), kp:GetAngles(), kp:GetVelocity()
+	local mid = LocalToWorld((mn + mx) / 2, angle_zero, kpos, kang)
+	local rad = (mx - mn):Length() / 2
+	k.SGBubbles = k.SGBubbles or setmetatable({}, { __mode = "k" })
+	local moved
+	for _, b in ipairs(bubbles) do
+		if IsValid(b) then
+			local c = b:GetPos()
+			local half = (b:OBBMaxs() - b:OBBMins()) / 2
+			if b:GetClass() == "shield" then half = Vector(b.Size or 80, b.Size or 80, b.Size or 80) end
+			local big = math.max(half.x, half.y, half.z)
+			local seen = k.SGBubbles[b]
+			if mid:DistToSqr(c) > (big + rad + 600) ^ 2 or not bubbleHolds(b, hull, k) then
+				k.SGBubbles[b] = nil
+			else
+				local ba = b:GetAngles()
+				-- the ship's point nearest the bubble's middle, and how far in it is
+				local bestL, bestP = math.huge, nil
+				for _, bx in ipairs(boxes) do
+					local lc = WorldToLocal(c, angle_zero, kpos, kang)
+					local pt = LocalToWorld(Vector(math.Clamp(lc.x, bx[1].x, bx[2].x), math.Clamp(lc.y, bx[1].y, bx[2].y), math.Clamp(lc.z, bx[1].z, bx[2].z)), angle_zero, kpos, kang)
+					local q = WorldToLocal(pt, angle_zero, c, ba)
+					local L = Vector(q.x / math.max(half.x, 1), q.y / math.max(half.y, 1), q.z / math.max(half.z, 1)):Length()
+					if L < bestL then bestL, bestP = L, pt end
+				end
+				local qm = WorldToLocal(mid, angle_zero, c, ba)
+				local Lm = Vector(qm.x / math.max(half.x, 1), qm.y / math.max(half.y, 1), qm.z / math.max(half.z, 1)):Length()
+				if seen == nil then
+					-- (in it already when it came on, or the ship was made there: it may fly out)
+					k.SGBubbles[b] = Lm < 1 and "in" or "out"
+				elseif seen == "in" then
+					if bestL > 1 then k.SGBubbles[b] = "out" end
+				elseif bestL < 1 and bestP then
+					local n = (mid - c):GetNormalized()
+					local deep = bestL > 0.05 and (1 - bestL) * bestP:Distance(c) / bestL or big
+					kpos = kpos + n * math.min(deep, 120)
+					mid = mid + n * math.min(deep, 120)
+					local raw = v:Dot(n)
+					if raw < 0 then v = v - n * raw end
+					local hv = IsValid(hull.SGCore) and hull.SGCore.Helm and hull.SGCore.Helm.vel
+					if hv and hv:Dot(n) < 0 then hull.SGCore.Helm.vel = hv - n * hv:Dot(n) end
+					moved = true
+					if raw < -60 and (b.SGHitAt or 0) < CurTime() then
+						b.SGHitAt = CurTime() + 0.4
+						pcall(b.Hit, b, hull, bestP, math.Clamp(-raw / 200, 1, 10), n)
+					end
+				end
+			end
+		end
+	end
+	if not moved then return end
+	k:SetPos(kpos)
+	kp:SetPos(kpos)
+	kp:SetVelocity(v)
+	k.SGLastV = v
+	k.SGShieldHits = (k.SGShieldHits or 0) + 1   -- (tests read it)
 end
 
 -- A shut door or a field that holds is a wall for a whole SpaceGrid ship too. A ship is moved by its keel

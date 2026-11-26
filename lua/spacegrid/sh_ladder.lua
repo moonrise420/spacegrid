@@ -28,7 +28,7 @@ function SpaceGrid.LadderAt(pos)
 			if lp.x > mn.x and lp.x < mx.x and lp.y > mn.y and lp.y < mx.y and lp.z > mn.z - 8 and lp.z < mx.z + REACH then
 				for _, l in ipairs(ladders(hull)) do
 					local q = WorldToLocal(lp, angle_zero, l.part.pos, l.part.ang)
-					if q.x > l.a.x and q.x < l.b.x and q.y > l.a.y and q.y < l.b.y and q.z > l.a.z - 8 and q.z < l.b.z + REACH then return hull end
+					if q.x > l.a.x and q.x < l.b.x and q.y > l.a.y and q.y < l.b.y and q.z > l.a.z - 8 and q.z < l.b.z + REACH then return hull, l end
 				end
 			end
 		end
@@ -41,12 +41,24 @@ local cvGravity = GetConVar("sv_gravity")
 hook.Add("Move", "SpaceGrid.Ladder", function(ply, mv)
 	if ply:GetMoveType() ~= MOVETYPE_WALK or mv:KeyDown(IN_JUMP) then return end
 	local origin = mv:GetOrigin()
-	local hull = SpaceGrid.LadderAt(origin + Vector(0, 0, 36))
+	local hull, lad = SpaceGrid.LadderAt(origin + Vector(0, 0, 36))
 	if not hull then return end
 	local ang = mv:GetAngles()
 	local f = (mv:KeyDown(IN_FORWARD) and 1 or 0) - (mv:KeyDown(IN_BACK) and 1 or 0)
 	local s = (mv:KeyDown(IN_MOVERIGHT) and 1 or 0) - (mv:KeyDown(IN_MOVELEFT) and 1 or 0)
 	local v = ang:Forward() * (f * SPEED) + Angle(0, ang.y, 0):Right() * (s * SPEED * 0.5)
+	-- Looking steeply up or down he climbs straight, kept in the middle of the shaft (test deckflight: he drifted forward
+	-- while he climbed, and in a ship that does not stand along the map's axes his square box met the opening's edge)
+	if f ~= 0 and math.abs(ang.p) > 45 then
+		local up = hull:GetUp()
+		local mid = (lad.a + lad.b) / 2
+		local axis = hull:LocalToWorld((LocalToWorld(mid, angle_zero, lad.part.pos, lad.part.ang)))
+		local to = axis - origin
+		to = to - up * to:Dot(up)
+		local pull = to * 4
+		if pull:Length() > 80 then pull = pull:GetNormalized() * 80 end
+		v = up * (f * SPEED * (ang.p < 0 and 1 or -1)) + pull
+	end
 	if ply:OnGround() then
 		-- standing on a deck by the ladder: he walks as ever, unless he starts to climb up
 		if v.z < 30 then return end

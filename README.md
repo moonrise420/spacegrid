@@ -7,7 +7,7 @@ SpaceGrid is a building kit for spaceships and stations. Corridors, halls, hanga
 ## Install
 **Steam Workshop (easiest):** subscribe [there](https://steamcommunity.com/sharedfiles/filedetails/?id=3840679187).
 
-**By hand:** download `spacegrid-0.2.1.zip` from [Releases](../../releases/latest) and unpack it into
+**By hand:** download `spacegrid-0.3.0.zip` from [Releases](../../releases/latest) and unpack it into
 `garrysmod/addons/` (you get the folder `garrysmod/addons/spacegrid`).
 
 ## Bugs, problems and wishes
