@@ -50,7 +50,17 @@ Please use [Issues](../../issues): pick *Bug report* or *Wish or idea*. On the S
 - Navigation console with compass, heading, position, speed and height
 
 ### Flying (with StarCore)
-A ship with a cockpit, bridge or control desk gets its StarCore core by itself the moment you sit down at the helm. F switches to a camera behind the ship, the mouse wheel moves it; Ctrl still flies the ship down. Get up and the ship stays parked where it hovers. Engines and thrusters glow while it moves, landing legs fold in by themselves. With Ascension Gates the ship flies through a Stargate. A destroyed ship looks destroyed: burnt dark hull, fires, then smoke.
+A ship with a cockpit, bridge or control desk gets its StarCore core by itself the moment you sit down at the helm. Get up and the ship stays parked where it hovers. Engines and thrusters glow while it moves, landing legs fold in by themselves. With Ascension Gates the ship flies through a Stargate. A destroyed ship looks destroyed: burnt dark hull, fires, then smoke.
+
+### Controls (pilot seat)
+- **W / S**: forward / back, **A / D**: turn
+- **Space / Ctrl**: up / down, **Shift**: boost
+- **M**: steer with the mouse (A / D then slide sideways), **Alt** held: look around
+- **H**: hover on / off, **J**: freeze / unfreeze the ship
+- **F**: camera behind the ship, mouse wheel: camera distance
+- **Left mouse**: fire the ship's weapons, **R**: ship menu, **E**: get up
+
+These are the default keys. StarCore's keys (M, Alt, H, J...) can be changed in the ship menu (R), Settings tab.
 
 ### Settings
 Spawn menu, SpaceGrid tab > Settings: server settings for admins and your own.
